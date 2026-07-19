@@ -1,4 +1,1 @@
-add_executable(nexus_traits_production_traits_test production_traits_test.cpp)
-target_link_libraries(nexus_traits_production_traits_test PRIVATE nexus_traits)
-target_compile_options(nexus_traits_production_traits_test PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME nexus_traits_production_traits_test COMMAND nexus_traits_production_traits_test)
+nexus_add_test(nexus_traits_production_traits_test SOURCE production_traits_test.cpp LINK_LIBRARIES nexus_traits)

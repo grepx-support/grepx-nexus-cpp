@@ -69,6 +69,8 @@ Thumbs.db
 *.log
 logs/
 
+*.venv
+
 # External dependencies (if using git submodules)
 # Uncomment if you want to ignore external libraries
 # external/*

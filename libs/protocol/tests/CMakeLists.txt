@@ -1,4 +1,1 @@
-add_executable(nexus_protocol_codec_test codec_test.cpp)
-target_link_libraries(nexus_protocol_codec_test PRIVATE nexus_protocol)
-target_compile_options(nexus_protocol_codec_test PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME nexus_protocol_codec_test COMMAND nexus_protocol_codec_test)
+nexus_add_test(nexus_protocol_codec_test SOURCE codec_test.cpp LINK_LIBRARIES nexus_protocol)

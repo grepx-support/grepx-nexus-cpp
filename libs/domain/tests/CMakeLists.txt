@@ -1,6 +1,3 @@
 foreach(test_name IN ITEMS row_test predicate_test)
-    add_executable(nexus_domain_${test_name} ${test_name}.cpp)
-    target_link_libraries(nexus_domain_${test_name} PRIVATE nexus_domain)
-    target_compile_options(nexus_domain_${test_name} PRIVATE -Wall -Wextra -Wpedantic)
-    add_test(NAME nexus_domain_${test_name} COMMAND nexus_domain_${test_name})
+    nexus_add_test(nexus_domain_${test_name} SOURCE ${test_name}.cpp LINK_LIBRARIES nexus_domain)
 endforeach()
