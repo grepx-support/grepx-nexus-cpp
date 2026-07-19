@@ -6,6 +6,7 @@
 #include "nexus/domain/table_name.hpp"
 #include "nexus/persistence/sqlite3_shim.hpp"
 #include <cstdint>
+#include <cstdlib>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -87,12 +88,25 @@ private:
     sqlite3_stmt* stmt_ = nullptr;
 };
 
+// Resolves the DB path used when no explicit path is passed:
+// NEXUS_DB_PATH env var if set, otherwise "nexus_data.db" relative to
+// whatever the process's current working directory happens to be. That
+// CWD-relative fallback is exactly what causes "where did it create the
+// file" confusion — an IDE's default run-configuration working
+// directory is often the build output folder, not the repo root, so
+// the file silently lands somewhere unexpected. Set NEXUS_DB_PATH to an
+// absolute path (matching what scripts/create_schema.py wrote to) to
+// make this deterministic instead of guessing.
+inline std::string default_db_path() {
+    if (const char* env = std::getenv("NEXUS_DB_PATH")) return env;
+    return "nexus_data.db";
+}
+
 } // namespace detail
 
 // Default-constructible (same shape SnapshotTraits::Store is expected
-// to have), opening a fixed on-disk file in the current working
-// directory. A production version would take the path through
-// NetworkTraits/config instead of hardcoding it — see README.
+// to have). See detail::default_db_path() above for how the path is
+// resolved when not passed explicitly.
 //
 // Schema is NOT created here. nexus_rows (table_name, row_key, fields,
 // version) is owned and migrated externally — see scripts/create_schema.py.
@@ -102,11 +116,16 @@ private:
 // actually deployed.
 class SqliteSnapshotStore {
 public:
-    explicit SqliteSnapshotStore(const std::string& path = "nexus_data.db") {
+    explicit SqliteSnapshotStore(const std::string& path = detail::default_db_path())
+        : path_(path) {
         if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
             throw std::runtime_error("sqlite3_open failed: " + std::string(sqlite3_errmsg(db_)));
         }
     }
+
+    // So the server can print exactly which file it opened on startup —
+    // see apps/nexus_server/src/main.cpp.
+    [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
     ~SqliteSnapshotStore() {
         if (db_) sqlite3_close(db_);
@@ -187,6 +206,7 @@ public:
 
 private:
     sqlite3* db_ = nullptr;
+    std::string path_;
     mutable std::mutex mutex_;
 };
 

@@ -45,6 +45,9 @@ public:
     [[nodiscard]] TransitionSvc& transition() { return transition_; }
     [[nodiscard]] const Parser& criteria_parser() const { return parser_; }
     [[nodiscard]] const Log& audit_log() const { return log_; }
+    // Exposed mainly so a runner (nexus_server's main.cpp) can print
+    // exactly which backing store/file it's using on startup.
+    [[nodiscard]] const Store& store() const { return store_; }
 
 private:
     Store store_;

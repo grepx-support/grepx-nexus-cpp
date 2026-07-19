@@ -4,6 +4,7 @@
 #include "nexus/persistence/sqlite_snapshot_traits.hpp"
 #include "nexus/protocol/codec.hpp"
 #include "nexus/traits/production_traits.hpp"
+#include <filesystem>
 #include <iostream>
 #include <thread>
 #include <vector>
