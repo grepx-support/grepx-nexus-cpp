@@ -2,8 +2,10 @@
 #include "nexus/domain/error.hpp"
 #include "nexus/domain/predicate.hpp"
 #include "nexus/domain/row.hpp"
+#include "nexus/domain/row_key.hpp"
 #include "nexus/domain/table_name.hpp"
 #include "nexus/persistence/sqlite3_shim.hpp"
+#include <cstdint>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -91,24 +93,18 @@ private:
 // to have), opening a fixed on-disk file in the current working
 // directory. A production version would take the path through
 // NetworkTraits/config instead of hardcoding it — see README.
+//
+// Schema is NOT created here. nexus_rows (table_name, row_key, fields,
+// version) is owned and migrated externally — see scripts/create_schema.py.
+// Run it once before starting the server; this class assumes the table
+// already exists and fails loud on first query if it doesn't, rather
+// than silently creating a schema that could diverge from what's
+// actually deployed.
 class SqliteSnapshotStore {
 public:
     explicit SqliteSnapshotStore(const std::string& path = "nexus_data.db") {
         if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
             throw std::runtime_error("sqlite3_open failed: " + std::string(sqlite3_errmsg(db_)));
-        }
-        const char* create_sql =
-            "CREATE TABLE IF NOT EXISTS nexus_rows ("
-            "  table_name TEXT NOT NULL,"
-            "  row_key TEXT NOT NULL,"
-            "  fields TEXT NOT NULL,"
-            "  PRIMARY KEY (table_name, row_key)"
-            ")";
-        char* err = nullptr;
-        if (sqlite3_exec(db_, create_sql, nullptr, nullptr, &err) != SQLITE_OK) {
-            std::string message = err ? err : "unknown error";
-            sqlite3_free(err);
-            throw std::runtime_error("CREATE TABLE failed: " + message);
         }
     }
 
@@ -122,8 +118,9 @@ public:
     domain::Expected<void> upsert(const domain::TableName& table, domain::RowPtr row) {
         std::lock_guard lock(mutex_);
         detail::Statement stmt(db_,
-            "INSERT INTO nexus_rows(table_name, row_key, fields) VALUES (?, ?, ?) "
-            "ON CONFLICT(table_name, row_key) DO UPDATE SET fields = excluded.fields");
+            "INSERT INTO nexus_rows(table_name, row_key, fields, version) VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(table_name, row_key) DO UPDATE SET "
+            "  fields = excluded.fields, version = nexus_rows.version + 1");
 
         std::string fields = detail::encode_fields(row->fields());
         sqlite3_bind_text(stmt.get(), 1, table.value().c_str(), -1, SQLITE_TRANSIENT);
@@ -134,6 +131,33 @@ public:
             return std::unexpected(domain::Error::TableNotFound);
         }
         return {};
+    }
+
+    // ports::ConditionalWriter — optimistic-lock update used by
+    // TransitionService. VersionConflict if expected_version doesn't
+    // match the row's current version (includes "row doesn't exist",
+    // since sqlite3_changes() is 0 either way).
+    domain::Expected<std::uint64_t>
+    compare_and_swap(const domain::TableName& table, const domain::RowKey& key,
+                      std::uint64_t expected_version, domain::RowPtr row) {
+        std::lock_guard lock(mutex_);
+        detail::Statement stmt(db_,
+            "UPDATE nexus_rows SET fields = ?, version = version + 1 "
+            "WHERE table_name = ? AND row_key = ? AND version = ?");
+
+        std::string fields = detail::encode_fields(row->fields());
+        sqlite3_bind_text(stmt.get(), 1, fields.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, table.value().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, key.value().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt.get(), 4, static_cast<sqlite3_int64>(expected_version));
+
+        if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
+            return std::unexpected(domain::Error::TableNotFound);
+        }
+        if (sqlite3_changes(db_) == 0) {
+            return std::unexpected(domain::Error::VersionConflict);
+        }
+        return expected_version + 1;
     }
 
     [[nodiscard]] std::vector<domain::RowPtr>

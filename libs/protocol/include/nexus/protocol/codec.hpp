@@ -4,19 +4,23 @@
 #include "nexus/domain/row.hpp"
 #include "nexus/protocol/message.hpp"
 #include <charconv>
+#include <cstdint>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 
 namespace nexus::protocol {
 
 // Wire format (newline-delimited, one message per line):
 //
-//   SELECT    <table> <criteria...>
-//   INSERT    <table> <key> <field=type:value;field=type:value;...>
-//   SUBSCRIBE <id> <table> <criteria...>
+//   SELECT     <table> <criteria...>
+//   INSERT     <table> <key> <field=type:value;field=type:value;...>
+//   SUBSCRIBE  <id> <table> <criteria...>
+//   TRANSITION <table> <key> <from> <to> <expected_version> <fields>
 //
 //   OK
+//   OK    <detail>            (TRANSITION success: <detail> is the new version)
 //   ERR   <message>
 //   ROW   <key> <fields>
 //   END
@@ -120,6 +124,12 @@ inline std::string encode(const SubscribeRequest& req) {
     return "SUBSCRIBE " + req.subscription_id + " " + req.table.value() + " " + req.criteria;
 }
 
+inline std::string encode(const TransitionRequest& req) {
+    return "TRANSITION " + req.table.value() + " " + req.key + " " + req.from_status + " " +
+           req.to_status + " " + std::to_string(req.expected_version) + " " +
+           detail::encode_fields(req.row->fields());
+}
+
 inline domain::Expected<Request> parse_request(const std::string& line) {
     auto sp = line.find(' ');
     if (sp == std::string::npos) return std::unexpected(domain::Error::ParseError);
@@ -150,12 +160,31 @@ inline domain::Expected<Request> parse_request(const std::string& line) {
         return Request{SubscribeRequest{tokens[0], domain::TableName{tokens[1]}, criteria}};
     }
 
+    if (verb == "TRANSITION") {
+        // table key from to expected_version fields  -> 5 fixed tokens + remainder
+        auto tokens = detail::split_ws(rest, 6);
+        if (tokens.size() < 6) return std::unexpected(domain::Error::ParseError);
+
+        std::uint64_t expected_version = 0;
+        auto [ptr, ec] = std::from_chars(tokens[4].data(), tokens[4].data() + tokens[4].size(),
+                                          expected_version);
+        if (ec != std::errc{}) return std::unexpected(domain::Error::ParseError);
+
+        auto fields = detail::parse_fields(tokens[5]);
+        if (!fields) return std::unexpected(fields.error());
+        auto row = std::make_shared<const domain::Row>(domain::RowKey{tokens[1]}, std::move(*fields));
+
+        return Request{TransitionRequest{domain::TableName{tokens[0]}, tokens[1], tokens[2],
+                                          tokens[3], expected_version, row}};
+    }
+
     return std::unexpected(domain::Error::ParseError);
 }
 
 // ---- responses / events (server -> client) ----
 
 inline std::string encode_ok() { return "OK"; }
+inline std::string encode_ok(const std::string& detail) { return "OK " + detail; }
 inline std::string encode_err(const std::string& message) { return "ERR " + message; }
 inline std::string encode_end() { return "END"; }
 

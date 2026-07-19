@@ -60,6 +60,20 @@ void handle_connection(server::ConnectionPtr connection, Engine& engine) {
                         });
                     (void)connection->send_line(result ? protocol::encode_ok()
                                                          : protocol::encode_err("bad criteria"));
+
+                } else if constexpr (std::is_same_v<Req, protocol::TransitionRequest>) {
+                    auto result = engine.transition().execute(
+                        req.table, domain::RowKey{req.key}, req.from_status, req.to_status,
+                        req.expected_version, req.row);
+                    if (result) {
+                        (void)connection->send_line(protocol::encode_ok(std::to_string(*result)));
+                    } else if (result.error() == domain::Error::InvalidTransition) {
+                        (void)connection->send_line(protocol::encode_err("invalid transition"));
+                    } else if (result.error() == domain::Error::VersionConflict) {
+                        (void)connection->send_line(protocol::encode_err("version conflict"));
+                    } else {
+                        (void)connection->send_line(protocol::encode_err("transition failed"));
+                    }
                 }
             },
             *request);

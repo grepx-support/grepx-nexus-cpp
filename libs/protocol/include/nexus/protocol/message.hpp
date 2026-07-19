@@ -1,6 +1,7 @@
 #pragma once
 #include "nexus/domain/row.hpp"
 #include "nexus/domain/table_name.hpp"
+#include <cstdint>
 #include <string>
 #include <variant>
 
@@ -22,6 +23,15 @@ struct SubscribeRequest {
     std::string criteria;
 };
 
-using Request = std::variant<SelectRequest, InsertRequest, SubscribeRequest>;
+struct TransitionRequest {
+    domain::TableName table;
+    std::string key;
+    std::string from_status;
+    std::string to_status;
+    std::uint64_t expected_version;
+    domain::RowPtr row; // full new field set (status + whatever else changed)
+};
+
+using Request = std::variant<SelectRequest, InsertRequest, SubscribeRequest, TransitionRequest>;
 
 } // namespace nexus::protocol
