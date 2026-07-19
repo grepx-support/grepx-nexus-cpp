@@ -87,6 +87,12 @@ void handle_connection(server::ConnectionPtr connection, Engine& engine) {
 // above it (AppEngine<ProductionTraits>) is identical to the demo.
 template <typename Engine>
 int run_server(Engine& engine, int /*argc*/, char* /*argv*/[]) {
+    // Printed unconditionally, first thing — this is the #1 "where did
+    // it put the file" question. Absolute path, not the possibly-
+    // relative one passed to SqliteSnapshotStore, so there's no
+    // ambiguity about which CWD it resolved against.
+    std::cout << "[server] db: " << std::filesystem::absolute(engine.store().path()) << std::endl;
+
     auto listener = net::TcpListener::listen(kPort);
     if (!listener) {
         std::cerr << "failed to bind port " << kPort << '\n';
