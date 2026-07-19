@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# One-time setup for order_demo: creates a virtualenv here and installs
-# requirements.txt into it. Run once before ./run.sh.
+# One-time setup for order_demo: creates a virtualenv here, installs
+# requirements.txt into it, and creates the Nexus SQLite schema (the
+# nexus_rows table nexus_server assumes already exists).
 #
 # You still need, separately (not done by this script):
-#   1. nexus_server built and running (see repo root README / CMake)
-#   2. python ../../scripts/create_schema.py   (creates the SQLite schema)
+#   nexus_server built and running (see repo root README / CMake). Point
+#   it at the same DB this script just created: either run it with its
+#   working directory set to the repo root, or set NEXUS_DB_PATH to the
+#   absolute path printed below. nexus_server also prints the absolute
+#   path it actually opened on startup — check that matches.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -26,4 +30,8 @@ python -m pip install -r requirements.txt
 
 echo
 echo "order_demo: venv ready in $(pwd)/.venv"
-echo "Next: make sure nexus_server is running, then ./run.sh"
+echo
+python ../../scripts/create_schema.py
+echo
+echo "Next: start nexus_server (working directory = repo root, or set"
+echo "NEXUS_DB_PATH to the path printed above), then ./run.sh"
