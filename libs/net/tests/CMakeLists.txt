@@ -1,0 +1,4 @@
+add_executable(nexus_net_socket_test socket_test.cpp)
+target_link_libraries(nexus_net_socket_test PRIVATE nexus_net)
+target_compile_options(nexus_net_socket_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME nexus_net_socket_test COMMAND nexus_net_socket_test)

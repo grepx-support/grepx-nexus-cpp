@@ -1,0 +1,6 @@
+foreach(test_name IN ITEMS select_service_test insert_service_test subscribe_service_test dispatch_service_test transition_service_test)
+    add_executable(nexus_application_${test_name} ${test_name}.cpp)
+    target_link_libraries(nexus_application_${test_name} PRIVATE nexus_application)
+    target_compile_options(nexus_application_${test_name} PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME nexus_application_${test_name} COMMAND nexus_application_${test_name})
+endforeach()

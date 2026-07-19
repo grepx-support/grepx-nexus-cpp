@@ -1,0 +1,6 @@
+foreach(test_name IN ITEMS snapshot_store_test audit_log_test subscription_registry_test subscription_registry_stress_test event_bus_test)
+    add_executable(nexus_infra_${test_name} ${test_name}.cpp)
+    target_link_libraries(nexus_infra_${test_name} PRIVATE nexus_infra)
+    target_compile_options(nexus_infra_${test_name} PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME nexus_infra_${test_name} COMMAND nexus_infra_${test_name})
+endforeach()

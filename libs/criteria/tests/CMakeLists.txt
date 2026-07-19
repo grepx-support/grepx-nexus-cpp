@@ -1,0 +1,4 @@
+add_executable(nexus_criteria_tests parser_test.cpp)
+target_link_libraries(nexus_criteria_tests PRIVATE nexus_criteria)
+target_compile_options(nexus_criteria_tests PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME nexus_criteria_tests COMMAND nexus_criteria_tests)

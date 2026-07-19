@@ -1,0 +1,4 @@
+add_executable(nexus_persistence_sqlite_test sqlite_snapshot_store_test.cpp)
+target_link_libraries(nexus_persistence_sqlite_test PRIVATE nexus_persistence)
+target_compile_options(nexus_persistence_sqlite_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME nexus_persistence_sqlite_test COMMAND nexus_persistence_sqlite_test)
