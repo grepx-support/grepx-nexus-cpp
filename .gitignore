@@ -70,6 +70,7 @@ Thumbs.db
 logs/
 
 *.venv
+*_pycache__*
 
 # External dependencies (if using git submodules)
 # Uncomment if you want to ignore external libraries

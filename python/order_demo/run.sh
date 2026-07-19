@@ -7,18 +7,21 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-if [ ! -d .venv ]; then
-    echo "no .venv found here — run ./setup.sh first" >&2
+if [ -f .venv/bin/activate ]; then
+    source .venv/bin/activate
+elif [ -f .venv/Scripts/activate ]; then
+    source .venv/Scripts/activate
+else
+    echo "no venv found here — run ./setup.sh first" >&2
     exit 1
 fi
-source .venv/bin/activate
 
 python flask_frontend.py &
 FRONTEND_PID=$!
 python nexus_worker.py &
 WORKER_PID=$!
 
-trap 'echo; echo "stopping..."; kill "$FRONTEND_PID" "$WORKER_PID" 2>/dev/null' EXIT INT TERM
+trap 'echo; echo "stopping..."; kill "$FRONTEND_PID" "$WORKER_PID" 2>/dev/null' EXIT
 
 echo "order_demo running:"
 echo "  frontend  pid=$FRONTEND_PID  http://localhost:5000/orders"

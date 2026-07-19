@@ -19,9 +19,9 @@ add_subdirectory(libs/protocol)
 add_subdirectory(libs/engine)
 add_subdirectory(libs/persistence)
 
-add_subdirectory(apps/nexus_demo)
+#add_subdirectory(apps/nexus_demo)
 add_subdirectory(apps/nexus_server)
-add_subdirectory(apps/nexus_client)
+#add_subdirectory(apps/nexus_client)
 
 # Aggregate every sub-project's tests here too, since the guard in each
 # library's own CMakeLists.txt (CMAKE_SOURCE_DIR check) skips its tests
