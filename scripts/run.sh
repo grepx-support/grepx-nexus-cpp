@@ -45,4 +45,28 @@ if [ -d "$SRC_DIR" ]; then
 fi
 
 echo "starting $EXE"
-exec "$EXE"
+
+# Plain invocation, not `exec`: MSYS bash's exec doesn't reliably
+# process-replace a native Windows PE binary the way it does a POSIX
+# one, and a freshly-built .exe can transiently fail to launch on
+# Windows (Defender/antivirus scanning a just-created executable is the
+# usual cause) — that shows up here as a bogus-looking "No error".
+# Retrying a couple of times with a short pause clears it without
+# needing the user to just mash the up-arrow and re-run.
+attempt=1
+while true; do
+    if "$EXE"; then
+        exit 0
+    fi
+    status=$?
+    if [ "$attempt" -ge 3 ]; then
+        echo "run.sh: $EXE failed to start after $attempt attempts (exit $status)." >&2
+        echo "If this keeps happening, check Windows Defender / antivirus isn't" >&2
+        echo "quarantining or locking a freshly-built .exe, and that nothing else" >&2
+        echo "(another nexus_server, a locked DB file) is already holding it open." >&2
+        exit "$status"
+    fi
+    echo "run.sh: launch attempt $attempt failed (exit $status), retrying..." >&2
+    attempt=$((attempt + 1))
+    sleep 1
+done
