@@ -253,5 +253,20 @@ int main(int argc, char *argv[]) {
             nexus::traits::ProductionTraits<SnapshotTraits, AuditTraits, EventTraits,
                 SubscriptionTraits, CriteriaTraits, AuthTraits, SessionTraits>;
 
-    return nexus::app::launch_app<ProductionTraits>(argc, argv, run_server<app::AppEngine<ProductionTraits> >);
+    // AppEngine's constructor (inside launch_app) opens the SQLite DB,
+    // the authenticator, and the login-audit store — any of which can
+    // throw (locked file, bad path, permissions). Without this, an
+    // uncaught exception here means std::terminate() before a single
+    // line of output — looks exactly like "the server silently exited",
+    // which is a much harder bug to diagnose than a logged error and a
+    // non-zero exit code.
+    try {
+        return nexus::app::launch_app<ProductionTraits>(argc, argv, run_server<app::AppEngine<ProductionTraits> >);
+    } catch (const std::exception &e) {
+        logging::log().error(std::string("startup failed: ") + e.what());
+        return 1;
+    } catch (...) {
+        logging::log().error("startup failed: unknown exception");
+        return 1;
+    }
 }
