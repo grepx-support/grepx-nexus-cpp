@@ -1,21 +1,38 @@
-"""Python client library for nexus_server's wire protocol.
+"""Python SDK for nexus_server's wire protocol.
 
     from nexus_api import NexusClient, Row, NexusApplication
 
-Layout (small, single-purpose files, mirroring the C++ side's style):
-    values.py       encode/decode one field value (i:/d:/b:/s:/n: tags)
-    fields.py       encode/decode a whole field set, built on values.py
-    row.py          Row — key + fields
-    connection.py   one line-buffered TCP connection
-    subscription.py handle returned by NexusClient.subscribe()
-    client.py       NexusClient — insert / select / subscribe / transition
-    envelope.py     status/application/username/occurred_at, merged onto every row
-    application.py  NexusApplication — the reusable stage-tables + snapshot
-                    + state-machine model for building a new app on Nexus
+Layout — interface separated from implementation, one class per file:
+    interfaces/     the SDK's public contracts (ClientInterface,
+                     ConnectionInterface) — what callers, tests, and
+                     NexusApplication actually depend on
+    impl/           concrete implementations (NexusClient, TcpConnection)
+                     of those contracts — internal; only this file
+                     imports from here
+    models/         plain data types (Row, Subscription)
+    codec/          wire encode/decode, pure functions
+    application/    NexusApplication — the reusable stage-tables +
+                     snapshot + state-machine model for building a new
+                     app on Nexus
+    logging_config.py   nanosecond-precision logging setup, shared by
+                         every entrypoint
+
+NexusClient is exported as the concrete class (callers need something to
+instantiate) but implements ClientInterface — code that only needs to
+*use* a client, not construct one, should type-hint against
+ClientInterface instead, the same way application/nexus_application.py
+does.
 """
 from .application import NexusApplication
-from .client import NexusClient
-from .row import Row
-from .subscription import Subscription
+from .impl.nexus_client import NexusClient
+from .interfaces import ClientInterface, ConnectionInterface
+from .models import Row, Subscription
 
-__all__ = ["NexusClient", "NexusApplication", "Row", "Subscription"]
+__all__ = [
+    "NexusClient",
+    "NexusApplication",
+    "Row",
+    "Subscription",
+    "ClientInterface",
+    "ConnectionInterface",
+]

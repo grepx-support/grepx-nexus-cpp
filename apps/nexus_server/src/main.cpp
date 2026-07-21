@@ -2,127 +2,256 @@
 #include "nexus/app/app_launcher.hpp"
 #include "nexus/net/tcp_listener.hpp"
 #include "nexus/persistence/sqlite_snapshot_traits.hpp"
+#include "nexus/logging/composite_logger.hpp"
+#include "nexus/logging/console_logger.hpp"
+#include "nexus/logging/file_logger.hpp"
+#include "nexus/logging/global_logger.hpp"
+#include "nexus/persistence/executable_dir.hpp"
 #include "nexus/protocol/codec.hpp"
+#include "nexus/session/session.hpp"
 #include "nexus/traits/production_traits.hpp"
+#include <atomic>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <optional>
+#include <sstream>
 #include <thread>
 #include <vector>
 
 using namespace nexus;
 
 namespace {
+    constexpr unsigned short kPort = 7878;
 
-constexpr unsigned short kPort = 7878;
-
-template <typename Engine>
-void handle_connection(server::ConnectionPtr connection, Engine& engine) {
-    while (true) {
-        auto line = connection->recv_line();
-        if (!line) {
-            std::cout << "[server] client disconnected" << std::endl;
-            return;
+    // Console output alone disappears the moment the terminal is closed
+    // or scrolled past — every REQUEST/RESPONSE line this server prints
+    // (see handle_connection's `send` lambda) also needs to land
+    // somewhere durable for after-the-fact debugging. CompositeLogger
+    // forwards to both, so nothing about the console experience changes.
+    //
+    // Path resolution mirrors SqliteSnapshotStore's DB path (see
+    // nexus/persistence/sqlite_snapshot_store.hpp): NEXUS_LOG_PATH env
+    // var if set, else "logs/nexus_server.log" next to the executable
+    // itself (not the process's CWD, which varies by how it's launched).
+    void setup_logging() {
+        std::string log_path;
+        if (const char *env = std::getenv("NEXUS_LOG_PATH")) {
+            log_path = env;
+        } else {
+            log_path = persistence::executable_dir() + "/logs/nexus_server.log";
         }
 
-        auto request = protocol::parse_request(*line);
-        if (!request) {
-            (void)connection->send_line(protocol::encode_err("could not parse request"));
-            continue;
+        // FileLogger's constructor can throw (bad path, permissions,
+        // read-only filesystem, ...). This runs before anything else in
+        // main() — an uncaught exception here means std::terminate()
+        // before a single line of output, anywhere, which looks exactly
+        // like "the server silently exited for no reason". Logging
+        // setup failing must never take the whole process down with it;
+        // fall back to console-only and say why.
+        try {
+            std::vector<std::unique_ptr<logging::ILogger>> loggers;
+            loggers.push_back(std::make_unique<logging::ConsoleLogger>());
+            loggers.push_back(std::make_unique<logging::FileLogger>(log_path));
+            logging::set_logger(std::make_unique<logging::CompositeLogger>(std::move(loggers)));
+            logging::log().info("log file: " + std::filesystem::absolute(log_path).string());
+        } catch (const std::exception &e) {
+            logging::set_logger(std::make_unique<logging::ConsoleLogger>());
+            logging::log().warn(
+                "could not open log file '" + log_path + "' (" + e.what() + ") — console-only for this run");
         }
+    }
 
-        std::visit(
-            [&]<typename Req>(const Req& req) {
-                if constexpr (std::is_same_v<Req, protocol::SelectRequest>) {
-                    auto predicate = engine.criteria_parser().parse(req.criteria);
-                    if (!predicate) {
-                        (void)connection->send_line(protocol::encode_err("bad criteria"));
-                        return;
+    // Every accepted connection gets a small sequential id, purely for
+    // log correlation — with several connections logging concurrently
+    // (see ConsoleLogger's shared mutex), "conn=7" ties a REQUEST line
+    // to its RESPONSE line without needing thread ids or timestamps
+    // close enough together to eyeball.
+    std::atomic<std::uint64_t> next_connection_id{1};
+
+    template<typename Engine>
+    void handle_connection(server::ConnectionPtr connection, Engine &engine, std::uint64_t conn_id) {
+        // Every request line in, every response line out — logged in
+        // full at Info level, tagged with conn_id, for exactly the kind
+        // of "what did the client actually send / what did we actually
+        // reply" debugging that summarized logs don't answer.
+        auto send = [&](const std::string &line) {
+            logging::log().info("conn=" + std::to_string(conn_id) + " RESPONSE: " + line);
+            return connection->send_line(line);
+        };
+
+        bool authenticated = false;
+        // Set only once login() succeeds; RAII guard below logs the
+        // session out on every exit path (clean disconnect, parse
+        // error loop exit, or an exception unwinding the stack) so a
+        // crashed/killed connection can never leave a stale "logged
+        // in" row blocking that application_name forever.
+        std::optional<session::SessionId> session_id;
+        struct LogoutGuard {
+            Engine &engine;
+            std::optional<session::SessionId> &session_id;
+            ~LogoutGuard() { if (session_id) engine.sessions().logout(*session_id); }
+        } logout_guard{engine, session_id};
+
+        while (true) {
+            auto line = connection->recv_line();
+            if (!line) {
+                logging::log().info("conn=" + std::to_string(conn_id) + " client disconnected");
+                return;
+            }
+            logging::log().info("conn=" + std::to_string(conn_id) + " REQUEST: " + *line);
+
+            auto request = protocol::parse_request(*line);
+            if (!request) {
+                (void) send(protocol::encode_err("could not parse request"));
+                continue;
+            }
+            if (!authenticated) {
+                if (auto *auth_req = std::get_if<protocol::AuthRequest>(&*request)) {
+                    bool password_ok = engine.authenticator().authenticate(auth_req->username, auth_req->password);
+                    if (!password_ok) {
+                        logging::log().warn("login failed (bad credentials): user=" + auth_req->username);
+                        (void) send(protocol::encode_err("unauthorized"));
+                        continue;
                     }
-                    for (const auto& row : engine.select().execute(req.table, *predicate)) {
-                        (void)connection->send_line(protocol::encode_row(row));
+                    auto id = engine.sessions().login(
+                        session::Session{auth_req->username, auth_req->application_name, auth_req->access_mode});
+                    if (!id) {
+                        logging::log().warn(
+                            "login rejected: application='" + auth_req->application_name +
+                            "' access_mode='" + auth_req->access_mode + "' already active");
+                        (void) send(
+                            protocol::encode_err("application '" + auth_req->application_name + "' already logged in"));
+                        continue;
                     }
-                    (void)connection->send_line(protocol::encode_end());
-
-                } else if constexpr (std::is_same_v<Req, protocol::InsertRequest>) {
-                    auto result = engine.insert().execute(req.table, req.row);
-                    (void)connection->send_line(result ? protocol::encode_ok()
-                                                         : protocol::encode_err("insert failed"));
-
-                } else if constexpr (std::is_same_v<Req, protocol::SubscribeRequest>) {
-                    // weak_ptr: if the client later disconnects, lock() fails
-                    // and we simply skip the send. See connection.hpp.
-                    std::weak_ptr<server::Connection> weak_connection = connection;
-                    auto result = engine.subscribe().execute(
-                        req.subscription_id, req.table, req.criteria,
-                        [weak_connection](const domain::ChangeEvent& event) {
-                            if (auto conn = weak_connection.lock()) {
-                                (void)conn->send_line(protocol::encode_event(event));
-                            }
-                        });
-                    (void)connection->send_line(result ? protocol::encode_ok()
-                                                         : protocol::encode_err("bad criteria"));
-
-                } else if constexpr (std::is_same_v<Req, protocol::TransitionRequest>) {
-                    auto result = engine.transition().execute(
-                        req.table, domain::RowKey{req.key}, req.from_status, req.to_status,
-                        req.expected_version, req.row);
-                    if (result) {
-                        (void)connection->send_line(protocol::encode_ok(std::to_string(*result)));
-                    } else if (result.error() == domain::Error::InvalidTransition) {
-                        (void)connection->send_line(protocol::encode_err("invalid transition"));
-                    } else if (result.error() == domain::Error::VersionConflict) {
-                        (void)connection->send_line(protocol::encode_err("version conflict"));
-                    } else {
-                        (void)connection->send_line(protocol::encode_err("transition failed"));
-                    }
+                    session_id = id;
+                    authenticated = true;
+                    logging::log().info(
+                        "login: user=" + auth_req->username + " application=" + auth_req->application_name +
+                        " access_mode=" + auth_req->access_mode);
+                    (void) send(protocol::encode_ok());
+                } else {
+                    (void) send(protocol::encode_err("authentication required"));
                 }
-            },
-            *request);
+                continue;
+            }
+            // A single request's adapter code (SQLite, e.g.) can throw —
+            // schema mismatches, disk errors, etc. That must fail just this
+            // one request, not bring down every other connection on the
+            // process via std::terminate(). Catch at this boundary: one
+            // request in, one response out, whatever happens in between.
+            try {
+                std::visit(
+                    [&]<typename Req>(const Req &req) {
+                        if constexpr (std::is_same_v<Req, protocol::SelectRequest>) {
+                            auto predicate = engine.criteria_parser().parse(req.criteria);
+                            if (!predicate) {
+                                (void) send(protocol::encode_err("bad criteria"));
+                                return;
+                            }
+                            for (const auto &row: engine.select().execute(req.table, *predicate)) {
+                                (void) send(protocol::encode_row(row));
+                            }
+                            (void) send(protocol::encode_end());
+                        } else if constexpr (std::is_same_v<Req, protocol::InsertRequest>) {
+                            auto result = engine.insert().execute(req.table, req.row);
+                            (void) send(result
+                                            ? protocol::encode_ok()
+                                            : protocol::encode_err("insert failed"));
+                        } else if constexpr (std::is_same_v<Req, protocol::SubscribeRequest>) {
+                            // weak_ptr: if the client later disconnects, lock() fails
+                            // and we simply skip the send. See connection.hpp.
+                            std::weak_ptr<server::Connection> weak_connection = connection;
+                            auto result = engine.subscribe().execute(
+                                req.subscription_id, req.table, req.criteria,
+                                [weak_connection, conn_id](const domain::ChangeEvent &event) {
+                                    if (auto conn = weak_connection.lock()) {
+                                        std::string encoded = protocol::encode_event(event);
+                                        logging::log().info(
+                                            "conn=" + std::to_string(conn_id) + " RESPONSE (event): " + encoded);
+                                        (void) conn->send_line(encoded);
+                                    }
+                                });
+                            (void) send(result
+                                            ? protocol::encode_ok()
+                                            : protocol::encode_err("bad criteria"));
+                        } else if constexpr (std::is_same_v<Req, protocol::TransitionRequest>) {
+                            auto result = engine.transition().execute(
+                                req.table, domain::RowKey{req.key}, req.from_status, req.to_status,
+                                req.expected_version, req.row);
+                            if (result) {
+                                (void) send(protocol::encode_ok(std::to_string(*result)));
+                            } else if (result.error() == domain::Error::InvalidTransition) {
+                                (void) send(protocol::encode_err("invalid transition"));
+                            } else if (result.error() == domain::Error::VersionConflict) {
+                                (void) send(protocol::encode_err("version conflict"));
+                            } else {
+                                (void) send(protocol::encode_err("transition failed"));
+                            }
+                        }
+                    },
+                    *request);
+            } catch (const std::exception &e) {
+                logging::log().error(std::string("request failed: ") + e.what());
+                (void) send(protocol::encode_err(std::string("internal error: ") + e.what()));
+            } catch (...) {
+                logging::log().error("request failed: unknown exception");
+                (void) send(protocol::encode_err("internal error"));
+            }
+        }
     }
-}
 
-// The server "runner" — same shape as nexus_demo's run_console_demo,
-// but drives real network requests instead of a canned script. This is
-// the piece that's actually specific to being a server; the wiring
-// above it (AppEngine<ProductionTraits>) is identical to the demo.
-template <typename Engine>
-int run_server(Engine& engine, int /*argc*/, char* /*argv*/[]) {
-    // Printed unconditionally, first thing — this is the #1 "where did
-    // it put the file" question. Absolute path, not the possibly-
-    // relative one passed to SqliteSnapshotStore, so there's no
-    // ambiguity about which CWD it resolved against.
-    std::cout << "[server] db: " << std::filesystem::absolute(engine.store().path()) << std::endl;
+    // The server "runner" — same shape as nexus_demo's run_console_demo,
+    // but drives real network requests instead of a canned script. This is
+    // the piece that's actually specific to being a server; the wiring
+    // above it (AppEngine<ProductionTraits>) is identical to the demo.
+    template<typename Engine>
+    int run_server(Engine &engine, int /*argc*/, char * /*argv*/[]) {
+        // Printed unconditionally, first thing — this is the #1 "where did
+        // it put the file" question. Absolute path, not the possibly-
+        // relative one passed to SqliteSnapshotStore, so there's no
+        // ambiguity about which CWD it resolved against.
+        {
+            std::ostringstream oss;
+            oss << "db: " << std::filesystem::absolute(engine.store().path());
+            logging::log().info(oss.str());
+        }
 
-    auto listener = net::TcpListener::listen(kPort);
-    if (!listener) {
-        std::cerr << "failed to bind port " << kPort << '\n';
-        return 1;
+        auto listener = net::TcpListener::listen(kPort);
+        if (!listener) {
+            logging::log().error("failed to bind port " + std::to_string(kPort));
+            return 1;
+        }
+        logging::log().info("listening on 127.0.0.1:" + std::to_string(kPort));
+
+        std::vector<std::jthread> connection_threads;
+        while (true) {
+            auto socket = listener->accept();
+            if (!socket) continue;
+
+            std::uint64_t conn_id = next_connection_id++;
+            logging::log().info("conn=" + std::to_string(conn_id) + " client connected");
+            auto connection = std::make_shared<server::Connection>(std::move(*socket));
+            connection_threads.emplace_back(
+                [connection, &engine, conn_id] { handle_connection(connection, engine, conn_id); });
+        }
     }
-    std::cout << "[server] listening on 127.0.0.1:" << kPort << std::endl;
-
-    std::vector<std::jthread> connection_threads;
-    while (true) {
-        auto socket = listener->accept();
-        if (!socket) continue;
-
-        std::cout << "[server] client connected" << std::endl;
-        auto connection = std::make_shared<server::Connection>(std::move(*socket));
-        connection_threads.emplace_back(
-            [connection, &engine] { handle_connection(connection, engine); });
-    }
-}
-
 } // namespace
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
+    setup_logging();
+
     using SnapshotTraits = nexus::traits::SqliteSnapshotTraits; // <-- the whole swap
     using AuditTraits = nexus::traits::AuditTraits;
     using EventTraits = nexus::traits::EventTraits;
     using SubscriptionTraits = nexus::traits::SubscriptionTraits;
     using CriteriaTraits = nexus::traits::CriteriaTraits;
+    using AuthTraits = traits::AuthTraits;
+    using SessionTraits = traits::SessionTraits;
     using ProductionTraits =
-        nexus::traits::ProductionTraits<SnapshotTraits, AuditTraits, EventTraits,
-                                         SubscriptionTraits, CriteriaTraits>;
+            nexus::traits::ProductionTraits<SnapshotTraits, AuditTraits, EventTraits,
+                SubscriptionTraits, CriteriaTraits, AuthTraits, SessionTraits>;
 
-    return nexus::app::launch_app<ProductionTraits>(argc, argv, run_server<app::AppEngine<ProductionTraits>>);
+    return nexus::app::launch_app<ProductionTraits>(argc, argv, run_server<app::AppEngine<ProductionTraits> >);
 }

@@ -4,6 +4,7 @@
 #include "nexus/domain/row.hpp"
 #include "nexus/domain/row_key.hpp"
 #include "nexus/domain/table_name.hpp"
+#include "nexus/persistence/executable_dir.hpp"
 #include "nexus/persistence/sqlite3_shim.hpp"
 #include <cstdint>
 #include <cstdlib>
@@ -89,17 +90,18 @@ private:
 };
 
 // Resolves the DB path used when no explicit path is passed:
-// NEXUS_DB_PATH env var if set, otherwise "nexus_data.db" relative to
-// whatever the process's current working directory happens to be. That
-// CWD-relative fallback is exactly what causes "where did it create the
-// file" confusion — an IDE's default run-configuration working
-// directory is often the build output folder, not the repo root, so
-// the file silently lands somewhere unexpected. Set NEXUS_DB_PATH to an
-// absolute path (matching what scripts/create_schema.py wrote to) to
-// make this deterministic instead of guessing.
+//   1. NEXUS_DB_PATH env var, if set — always wins, for whoever wants
+//      explicit control.
+//   2. Otherwise, "nexus_data.db" next to the running executable
+//      itself — NOT the process's current working directory. CWD
+//      varies by how you launch the binary (double-click, an IDE's
+//      run-config default, a terminal cd'd somewhere else); the exe's
+//      own location does not. This is what makes "where did it put the
+//      file" have exactly one answer regardless of how nexus_server
+//      was started — see executable_dir().
 inline std::string default_db_path() {
     if (const char* env = std::getenv("NEXUS_DB_PATH")) return env;
-    return "nexus_data.db";
+    return executable_dir() + "/nexus_data.db";
 }
 
 } // namespace detail
@@ -109,7 +111,7 @@ inline std::string default_db_path() {
 // resolved when not passed explicitly.
 //
 // Schema is NOT created here. nexus_rows (table_name, row_key, fields,
-// version) is owned and migrated externally — see scripts/create_schema.py.
+// version) is owned and migrated externally — see python/create_schema.py (applied via scripts/setup.sh).
 // Run it once before starting the server; this class assumes the table
 // already exists and fails loud on first query if it doesn't, rather
 // than silently creating a schema that could diverge from what's
