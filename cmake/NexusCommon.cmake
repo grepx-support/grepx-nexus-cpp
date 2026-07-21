@@ -84,6 +84,36 @@ function(nexus_add_executable target)
         target_link_libraries(${target} PRIVATE ${ARG_DEPENDS})
     endif()
     target_compile_options(${target} PRIVATE ${NEXUS_WARNING_FLAGS})
+
+    # On MinGW, the .exe dynamically links libstdc++-6.dll,
+    # libgcc_s_seh-1.dll, and libwinpthread-1.dll by default. CLion's own
+    # run/debug puts the toolchain's bin/ on PATH so this is invisible
+    # there, but launching the same .exe from an arbitrary Git-Bash or
+    # cmd.exe session (nothing else adds that directory to PATH) fails
+    # outright — the OS loader can't resolve those DLLs and the process
+    # never starts (surfaces as exit code 127, no other diagnostic).
+    # Statically linking them in makes the exe self-contained: it runs
+    # from any shell, no PATH setup required, no DLLs to ship alongside
+    # it.
+    if(MINGW)
+        # -static-libstdc++ alone (even without a blanket -static) still
+        # collides here: "multiple definition of
+        # `std::type_info::operator==`" between libstdc++.a's tinfo.o and
+        # the inline weak definition GCC emits from <typeinfo> into any
+        # TU using RTTI comparisons (std::visit, dynamic_cast, catch
+        # blocks — main.cpp uses all three). Confirmed reproducible on
+        # this exact toolchain (CLion's bundled mingw, GCC 13.1.0) with
+        # nothing else in the flags changed — this is a packaging bug in
+        # that libstdc++.a, not something specific to nexus_server.
+        # Both definitions are the same weak symbol from libstdc++
+        # itself, so telling the linker to keep the first one and move on
+        # (--allow-multiple-definition) is safe, not a functional
+        # workaround-of-a-workaround.
+        target_link_options(${target} PRIVATE
+            -static-libgcc -static-libstdc++
+            -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic
+            -Wl,--allow-multiple-definition)
+    endif()
 endfunction()
 
 # nexus_add_test(<target> [SOURCE <file.cpp>] LINK_LIBRARIES <lib>...)

@@ -44,6 +44,72 @@ if [ -d "$SRC_DIR" ]; then
     fi
 fi
 
+# exit code 127 from a plain `"$EXE"` invocation under MSYS/Git-Bash
+# means the OS loader could not resolve the executable at all — almost
+# always a missing MinGW runtime DLL (libstdc++-6.dll, libgcc_s_seh-1.dll,
+# libwinpthread-1.dll) or a missing dependency the exe was dynamically
+# linked against (e.g. sqlite3.dll), NOT a transient AV lock (an AV lock
+# reproduces as "No error"/exit 1-ish and is intermittent; 127 is a hard,
+# consistent failure — retrying it 3 times just wastes 2 seconds).
+# `ldd` (present in MSYS/Git-Bash) lists exactly which DLL is missing, so
+# diagnose that up front instead of waiting for the retry loop to give up.
+fix_missing_dlls() {
+    if ! command -v ldd >/dev/null 2>&1; then
+        # Git-for-Windows' bundled bash is a minimal MSYS runtime and
+        # often doesn't ship ldd at all (that's the full MSYS2 install) —
+        # silently giving up here left the user with zero diagnosis, so
+        # hand them the one tool that's always available instead: Windows
+        # itself. Double-clicking the exe (or running it from cmd.exe)
+        # pops a dialog naming the exact missing DLL.
+        echo "run.sh: can't auto-diagnose — 'ldd' isn't available in this" >&2
+        echo "bash. To find the missing DLL by name, either:" >&2
+        echo "  - double-click $EXE in File Explorer (Windows will show a" >&2
+        echo "    dialog naming the missing DLL), or" >&2
+        echo "  - run:  cmd //c \"$(cygpath -w "$EXE" 2>/dev/null || echo "$EXE")\"" >&2
+        echo "Once you know the DLL name, either add the folder containing it" >&2
+        echo "to PATH before running this script, or rebuild nexus_server" >&2
+        echo "statically linked:" >&2
+        echo "  target_link_options(nexus_server PRIVATE -static-libgcc -static-libstdc++ -static)" >&2
+        return 1
+    fi
+    local missing
+    missing=$(ldd "$EXE" 2>/dev/null | awk '/not found/ {print $1}')
+    [ -z "$missing" ] && return 1
+
+    echo "run.sh: missing DLL dependencies (this is why it's exiting 127):" >&2
+    echo "$missing" | sed 's/^/  /' >&2
+
+    local search_dirs=(
+        /mingw64/bin /mingw32/bin /ucrt64/bin /clang64/bin
+        /c/msys64/mingw64/bin /c/msys64/ucrt64/bin /c/msys64/clang64/bin
+    )
+    local dll d found_dir=""
+    for dll in $missing; do
+        for d in "${search_dirs[@]}"; do
+            if [ -f "$d/$dll" ]; then
+                found_dir="$d"
+                break 2
+            fi
+        done
+    done
+
+    if [ -n "$found_dir" ]; then
+        echo "run.sh: found a matching runtime at $found_dir — adding to PATH and retrying." >&2
+        export PATH="$found_dir:$PATH"
+        return 0
+    fi
+
+    echo "run.sh: couldn't find those DLLs in the usual MSYS2 toolchain" >&2
+    echo "locations. Fix: add the bin/ directory that contains them (your" >&2
+    echo "MinGW toolchain's — check CLion's Settings > Build, Execution," >&2
+    echo "Deployment > Toolchains for its path) to PATH before running this" >&2
+    echo "script, e.g.:" >&2
+    echo "  export PATH=\"/path/to/mingw/bin:\$PATH\"" >&2
+    echo "Or rebuild statically linked (add to nexus_server's CMakeLists.txt):" >&2
+    echo "  target_link_options(nexus_server PRIVATE -static-libgcc -static-libstdc++ -static)" >&2
+    return 1
+}
+
 echo "starting $EXE"
 
 # Plain invocation, not `exec`: MSYS bash's exec doesn't reliably
@@ -53,17 +119,41 @@ echo "starting $EXE"
 # usual cause) — that shows up here as a bogus-looking "No error".
 # Retrying a couple of times with a short pause clears it without
 # needing the user to just mash the up-arrow and re-run.
+dll_fix_attempted=false
 attempt=1
 while true; do
-    if "$EXE"; then
+    # NOT `if "$EXE"; then exit 0; fi; status=$?` — when the condition
+    # of an if/then with no else is false, POSIX defines the *if
+    # statement's own* exit status as 0, not the failing command's. So
+    # `status=$?` right after that `fi` was always reading 0, no matter
+    # what $EXE actually exited with (confirmed both on this machine and
+    # in the field: "(exit 0)" printed on every failing attempt). Capture
+    # the real status directly via `||` instead, which set -e also
+    # leaves alone (it's not the final command in a checked list).
+    status=0
+    "$EXE" || status=$?
+    if [ "$status" -eq 0 ]; then
         exit 0
     fi
-    status=$?
+
+    if [ "$status" -eq 127 ] && [ "$dll_fix_attempted" != true ]; then
+        dll_fix_attempted=true
+        if fix_missing_dlls; then
+            echo "run.sh: retrying with fixed PATH..." >&2
+            continue
+        fi
+    fi
+
     if [ "$attempt" -ge 3 ]; then
         echo "run.sh: $EXE failed to start after $attempt attempts (exit $status)." >&2
-        echo "If this keeps happening, check Windows Defender / antivirus isn't" >&2
-        echo "quarantining or locking a freshly-built .exe, and that nothing else" >&2
-        echo "(another nexus_server, a locked DB file) is already holding it open." >&2
+        if [ "$status" -eq 127 ]; then
+            echo "Exit 127 means a missing DLL dependency, not an AV lock — see" >&2
+            echo "the diagnosis above." >&2
+        else
+            echo "If this keeps happening, check Windows Defender / antivirus isn't" >&2
+            echo "quarantining or locking a freshly-built .exe, and that nothing else" >&2
+            echo "(another nexus_server, a locked DB file) is already holding it open." >&2
+        fi
         exit "$status"
     fi
     echo "run.sh: launch attempt $attempt failed (exit $status), retrying..." >&2
