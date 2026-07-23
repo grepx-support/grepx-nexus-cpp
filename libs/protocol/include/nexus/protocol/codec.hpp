@@ -17,9 +17,10 @@ namespace nexus::protocol {
     //   INSERT     <table> <key> <field=type:value;field=type:value;...>
     //   SUBSCRIBE  <id> <table> <criteria...>
     //   TRANSITION <table> <key> <from> <to> <expected_version> <fields>
+    //   SUBMIT     <table> <key> <fields>        (fields must include status=s:<...>)
     //
     //   OK
-    //   OK    <detail>            (TRANSITION success: <detail> is the new version)
+    //   OK    <detail>            (TRANSITION/SUBMIT success: <detail> is the new version)
     //   ERR   <message>
     //   ROW   <key> <fields>
     //   END
@@ -131,6 +132,10 @@ namespace nexus::protocol {
                detail::encode_fields(req.row->fields());
     }
 
+    inline std::string encode(const SubmitRequest &req) {
+        return "SUBMIT " + req.table.value() + " " + req.key + " " + detail::encode_fields(req.row->fields());
+    }
+
     inline domain::Expected<Request> parse_request(const std::string &line) {
         auto sp = line.find(' ');
         if (sp == std::string::npos) return std::unexpected(domain::Error::ParseError);
@@ -182,6 +187,16 @@ namespace nexus::protocol {
                 }
             };
         }
+        if (verb == "SUBMIT") {
+            // table key fields -> 2 fixed tokens + remainder
+            auto tokens = detail::split_ws(rest, 3);
+            if (tokens.size() < 3) return std::unexpected(domain::Error::ParseError);
+            auto fields = detail::parse_fields(tokens[2]);
+            if (!fields) return std::unexpected(fields.error());
+            auto row = std::make_shared<const domain::Row>(domain::RowKey{tokens[1]}, std::move(*fields));
+            return Request{SubmitRequest{domain::TableName{tokens[0]}, tokens[1], row}};
+        }
+
         if (verb == "AUTH") {
             // AUTH <username> <password> <application_name> <access_mode>
             auto tokens = detail::split_ws(rest, 4);

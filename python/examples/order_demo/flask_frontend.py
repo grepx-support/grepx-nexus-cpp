@@ -1,6 +1,6 @@
 """Flask 'frontend' for order_demo — a new order becomes a NEW entry in
 the NewOrderRequest audit table and a NEW snapshot row in orders.
-nexus_worker.py picks it up from there and moves it through the state
+main.py picks it up from there and moves it through the state
 machine. Mirrors trade_demo/flask_frontend.py exactly — same shape,
 order_demo-specific fields — so the two example demos read the same way
 side by side.
@@ -11,10 +11,10 @@ Setup:
 
 Run (separate terminals):
     scripts/run.sh     (starts nexus_server)
-    ./run.sh           (starts this + nexus_worker.py together)
+    ./run.sh           (starts this + main.py together)
 
 Then open http://localhost:5000/ in a browser — submit an order and
-watch its status move NEW -> CLAIMED -> ACCEPTED as nexus_worker.py
+watch its status move NEW -> CLAIMED -> ACCEPTED as main.py
 processes it. Or via curl:
     curl -X POST localhost:5000/orders -H "Content-Type: application/json" \
         -d "{\"amount\": 150, \"currency\": \"USD\"}"
@@ -23,7 +23,7 @@ processes it. Or via curl:
 import logging
 import uuid
 
-from app_model import NEW_ORDER_TABLE, SNAPSHOT_TABLE, create_order_app
+from app_model import NEW_ORDER_STAGE, SNAPSHOT_TABLE, create_order_app
 from flask import Flask, jsonify, request
 from nexus_api.logging_config import configure_logging
 
@@ -31,7 +31,7 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Distinct application_name from nexus_worker.py's — see app_model.py's
+# Distinct application_name from main.py's — see app_model.py's
 # create_order_app() docstring for why this can't be a shared singleton.
 ORDER_APP = create_order_app("order-demo-frontend")
 
@@ -46,9 +46,9 @@ def submit_order():
 
     order_id = str(uuid.uuid4())
     ORDER_APP.submit(
-        NEW_ORDER_TABLE, order_id,
+        order_id,
         status="NEW",
-        application=NEW_ORDER_TABLE,
+        application=NEW_ORDER_STAGE,
         username=body.get("username", "anonymous"),
         fields={
             "amount": int(body["amount"]),
@@ -57,7 +57,7 @@ def submit_order():
     )
     logger.info("order submitted: order_id=%s amount=%s currency=%s",
                 order_id, body["amount"], body["currency"])
-    # 202: accepted into Nexus, not yet processed — nexus_worker.py picks
+    # 202: accepted into Nexus, not yet processed — main.py picks
     # this up asynchronously via SUBSCRIBE.
     return jsonify(order_id=order_id, status="NEW"), 202
 
@@ -112,8 +112,10 @@ DASHBOARD_HTML = """<!doctype html>
   <input name="amount" type="number" placeholder="amount" required>
   <input name="currency" placeholder="currency (e.g. USD)" required>
   <button type="submit">Submit order</button>
+  <button type="button" id="refresh-btn">Refresh</button>
 </form>
 <div id="msg"></div>
+<div id="poll-status" style="font-size: 0.8rem; color: #999;"></div>
 
 <table>
   <thead>
@@ -124,7 +126,18 @@ DASHBOARD_HTML = """<!doctype html>
 </table>
 
 <script>
+// Polls only while something's actually still moving — a fixed
+// setInterval would hit the server forever even after every order sits
+// at ACCEPTED/REJECTED with nothing left to change, which doesn't scale
+// with more tabs/orders open. Each refresh() decides for itself whether
+// to schedule the next one, based on what it just fetched, so idle
+// dashboards go quiet.
+const TERMINAL = new Set(['ACCEPTED', 'REJECTED']);
+let pollTimer = null;
+
 async function refresh() {
+  if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+
   const res = await fetch('/orders');
   const orders = await res.json();
   document.getElementById('rows').innerHTML = orders.map(o => `
@@ -137,6 +150,11 @@ async function refresh() {
       <td>${o.currency ?? ''}</td>
       <td>${(o.occurred_at ?? '').replace('T', ' ').slice(0, 19)}</td>
     </tr>`).join('');
+
+  const pending = orders.some(o => !TERMINAL.has(o.status));
+  document.getElementById('poll-status').textContent =
+    pending ? 'watching for updates…' : 'idle — nothing pending';
+  if (pending) pollTimer = setTimeout(refresh, 1500);
 }
 
 document.getElementById('submit-form').addEventListener('submit', async (e) => {
@@ -160,8 +178,9 @@ document.getElementById('submit-form').addEventListener('submit', async (e) => {
   refresh();
 });
 
+document.getElementById('refresh-btn').addEventListener('click', refresh);
+
 refresh();
-setInterval(refresh, 1500);
 </script>
 </body>
 </html>

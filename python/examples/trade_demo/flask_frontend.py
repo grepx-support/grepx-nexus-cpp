@@ -1,6 +1,6 @@
 """Flask 'frontend' for the trade demo — a new trade order becomes a NEW
 entry in the NewRequest audit table and a NEW snapshot row in
-transactions. backend_worker.py picks it up from there and moves it
+transactions. main.py picks it up from there and moves it
 through the state machine, writing its own audit entries to
 BackEndServer along the way.
 
@@ -10,10 +10,10 @@ Setup:
 Run (separate terminals):
     nexus_server   (working directory = repo root, or NEXUS_DB_PATH set —
                     see setup.sh's printed instructions)
-    ./run.sh       (starts this + backend_worker.py together)
+    ./run.sh       (starts this + main.py together)
 
 Then open http://localhost:5001/ in a browser — submit a trade and
-watch its status move NEW -> CLAIMED -> ACCEPTED as backend_worker.py
+watch its status move NEW -> CLAIMED -> ACCEPTED as main.py
 processes it. Or via curl:
     curl -X POST localhost:5001/trades -H "Content-Type: application/json" \
         -d "{\"symbol\": \"AAPL\", \"side\": \"BUY\", \"qty\": 100, \"price\": 190.5}"
@@ -22,7 +22,7 @@ processes it. Or via curl:
 import logging
 import uuid
 
-from app_model import NEW_REQUEST_TABLE, SNAPSHOT_TABLE, create_trade_app
+from app_model import NEW_REQUEST_STAGE, SNAPSHOT_TABLE, create_trade_app
 from flask import Flask, jsonify, request
 from nexus_api.logging_config import configure_logging
 
@@ -30,7 +30,7 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Distinct application_name from backend_worker.py's — see app_model.py's
+# Distinct application_name from main.py's — see app_model.py's
 # create_trade_app() docstring for why this can't be a shared singleton.
 TRADE_APP = create_trade_app("trade-demo-frontend")
 
@@ -45,9 +45,9 @@ def submit_trade():
 
     trade_id = str(uuid.uuid4())
     TRADE_APP.submit(
-        NEW_REQUEST_TABLE, trade_id,
+        trade_id,
         status="NEW",
-        application=NEW_REQUEST_TABLE,
+        application=NEW_REQUEST_STAGE,
         username=body.get("username", "anonymous"),
         fields={
             "symbol": str(body["symbol"]),
@@ -115,8 +115,10 @@ DASHBOARD_HTML = """<!doctype html>
   <input name="qty" type="number" placeholder="qty" required>
   <input name="price" type="number" step="0.01" placeholder="price" required>
   <button type="submit">Submit trade</button>
+  <button type="button" id="refresh-btn">Refresh</button>
 </form>
 <div id="msg"></div>
+<div id="poll-status" style="font-size: 0.8rem; color: #999;"></div>
 
 <table>
   <thead>
@@ -127,7 +129,18 @@ DASHBOARD_HTML = """<!doctype html>
 </table>
 
 <script>
+// Polls only while something's actually still moving — a fixed
+// setInterval would hit the server forever even after every trade sits
+// at ACCEPTED/REJECTED with nothing left to change, which doesn't scale
+// with more tabs/trades open. Each refresh() decides for itself whether
+// to schedule the next one, based on what it just fetched, so idle
+// dashboards go quiet.
+const TERMINAL = new Set(['ACCEPTED', 'REJECTED']);
+let pollTimer = null;
+
 async function refresh() {
+  if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+
   const res = await fetch('/trades');
   const trades = await res.json();
   document.getElementById('rows').innerHTML = trades.map(t => `
@@ -142,6 +155,11 @@ async function refresh() {
       <td>${t.price ?? ''}</td>
       <td>${(t.occurred_at ?? '').replace('T', ' ').slice(0, 19)}</td>
     </tr>`).join('');
+
+  const pending = trades.some(t => !TERMINAL.has(t.status));
+  document.getElementById('poll-status').textContent =
+    pending ? 'watching for updates…' : 'idle — nothing pending';
+  if (pending) pollTimer = setTimeout(refresh, 1500);
 }
 
 document.getElementById('submit-form').addEventListener('submit', async (e) => {
@@ -167,8 +185,9 @@ document.getElementById('submit-form').addEventListener('submit', async (e) => {
   refresh();
 });
 
+document.getElementById('refresh-btn').addEventListener('click', refresh);
+
 refresh();
-setInterval(refresh, 1500);
 </script>
 </body>
 </html>

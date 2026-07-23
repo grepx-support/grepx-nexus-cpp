@@ -18,10 +18,18 @@ fi
 
 python flask_frontend.py &
 FRONTEND_PID=$!
-python backend_worker.py &
+python main.py &
 WORKER_PID=$!
 
-trap 'echo; echo "stopping..."; kill "$FRONTEND_PID" "$WORKER_PID" 2>/dev/null' EXIT
+# Both demos' worker entrypoints are now named main.py (see
+# business_logic.py/main.py split) — indistinguishable from each other
+# by process name/command-line alone, unlike when they had unique names
+# (nexus_worker.py vs backend_worker.py). A pidfile in this demo's own
+# directory is what stop_client.sh (run from a different terminal) uses
+# instead, so it stops exactly this demo's two processes and not the
+# other one's.
+echo "$FRONTEND_PID $WORKER_PID" > .run.pids
+trap 'echo; echo "stopping..."; kill "$FRONTEND_PID" "$WORKER_PID" 2>/dev/null; rm -f .run.pids' EXIT
 
 echo "trade_demo running:"
 echo "  frontend  pid=$FRONTEND_PID  http://localhost:5001/trades"

@@ -189,6 +189,20 @@ namespace {
                             } else {
                                 (void) send(protocol::encode_err("transition failed"));
                             }
+                        } else if constexpr (std::is_same_v<Req, protocol::SubmitRequest>) {
+                            // One call does everything TRANSITION used to need two
+                            // separate client-driven steps for (see SubmitService):
+                            // the server reads the row's current status itself, so
+                            // there's no from_status/expected_version for the client
+                            // to supply or get wrong.
+                            auto result = engine.submit().execute(req.table, domain::RowKey{req.key}, req.row);
+                            if (result) {
+                                (void) send(protocol::encode_ok(std::to_string(result->version)));
+                            } else if (result.error() == domain::Error::InvalidTransition) {
+                                (void) send(protocol::encode_err("invalid transition"));
+                            } else {
+                                (void) send(protocol::encode_err("submit failed"));
+                            }
                         }
                     },
                     *request);

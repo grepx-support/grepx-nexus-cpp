@@ -38,7 +38,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from models import ALL_TABLES
+from models import ALL_TABLES, OUTBOX_SQL
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -78,8 +78,10 @@ def apply_schema(db_path: Path) -> None:
     try:
         for table in ALL_TABLES:
             conn.executescript(table.to_sql())
+        conn.executescript(OUTBOX_SQL)
         conn.commit()
-        print(f"schema applied to {db_path.resolve()}: {', '.join(t.name for t in ALL_TABLES)}")
+        names = [t.name for t in ALL_TABLES] + ["outbox"]
+        print(f"schema applied to {db_path.resolve()}: {', '.join(names)}")
     finally:
         conn.close()
 

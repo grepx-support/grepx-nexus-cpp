@@ -6,11 +6,14 @@
 #include "nexus/domain/table_name.hpp"
 #include "nexus/persistence/executable_dir.hpp"
 #include "nexus/persistence/sqlite3_shim.hpp"
+#include "nexus/ports/submit_writer.hpp"
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace nexus::persistence {
@@ -179,6 +182,127 @@ public:
             return std::unexpected(domain::Error::VersionConflict);
         }
         return expected_version + 1;
+    }
+
+    // ports::SubmitWriter — one atomic unit covering everything a
+    // client-visible "submit a transaction" call needs: read the row's
+    // current status (if it exists), validate the transition, upsert
+    // the snapshot, and durably record the attempt in outbox — all
+    // inside one BEGIN IMMEDIATE/COMMIT, so a caller (SubmitService)
+    // never has to make two separate network round trips for what is
+    // conceptually one business event, and can never observe a
+    // half-applied one (rollback on any failure, including an illegal
+    // transition).
+    //
+    // BEGIN IMMEDIATE (not the bare "BEGIN" a deferred transaction
+    // would use) takes SQLite's write lock up front, before the read —
+    // otherwise two concurrent submits could both read the same
+    // "current status" and both believe their transition is the one
+    // being applied first.
+    domain::Expected<ports::SubmitResult>
+    submit(const domain::TableName& table, const domain::RowKey& key, domain::RowPtr row,
+           const std::function<bool(std::string_view, std::string_view)>& is_allowed) {
+        std::lock_guard lock(mutex_);
+
+        if (sqlite3_exec(db_, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr) != SQLITE_OK) {
+            return std::unexpected(domain::Error::TableNotFound);
+        }
+
+        std::string current_status;
+        std::uint64_t current_version = 0;
+        bool exists = false;
+        {
+            detail::Statement stmt(db_,
+                "SELECT fields, version FROM nexus_rows WHERE table_name = ? AND row_key = ?");
+            sqlite3_bind_text(stmt.get(), 1, table.value().c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt.get(), 2, key.value().c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+                exists = true;
+                std::string fields_text(reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0)),
+                                         static_cast<std::size_t>(sqlite3_column_bytes(stmt.get(), 0)));
+                current_version = static_cast<std::uint64_t>(sqlite3_column_int64(stmt.get(), 1));
+                auto fields = detail::decode_fields(fields_text);
+                if (auto it = fields.find("status"); it != fields.end()) {
+                    if (const auto* s = std::get_if<std::string>(&it->second)) current_status = *s;
+                }
+            }
+        }
+
+        std::string to_status;
+        if (auto it = row->fields().find("status"); it != row->fields().end()) {
+            if (const auto* s = std::get_if<std::string>(&it->second)) to_status = *s;
+        }
+
+        // No prior row: any initial status is accepted, nothing to
+        // validate a transition from. A prior row: the caller-supplied
+        // state machine has the final say.
+        if (exists && !is_allowed(current_status, to_status)) {
+            sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+            return std::unexpected(domain::Error::InvalidTransition);
+        }
+
+        std::string fields_text = detail::encode_fields(row->fields());
+        {
+            detail::Statement stmt(db_,
+                "INSERT INTO nexus_rows(table_name, row_key, fields, version) VALUES (?, ?, ?, 1) "
+                "ON CONFLICT(table_name, row_key) DO UPDATE SET "
+                "  fields = excluded.fields, version = nexus_rows.version + 1");
+            sqlite3_bind_text(stmt.get(), 1, table.value().c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt.get(), 2, key.value().c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt.get(), 3, fields_text.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
+                sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+                return std::unexpected(domain::Error::TableNotFound);
+            }
+        }
+
+        std::uint64_t outbox_id = 0;
+        {
+            detail::Statement stmt(db_,
+                "INSERT INTO outbox(table_name, transaction_id, from_status, to_status, fields, occurred_at) "
+                "VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
+            sqlite3_bind_text(stmt.get(), 1, table.value().c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt.get(), 2, key.value().c_str(), -1, SQLITE_TRANSIENT);
+            if (exists) {
+                sqlite3_bind_text(stmt.get(), 3, current_status.c_str(), -1, SQLITE_TRANSIENT);
+            } else {
+                sqlite3_bind_null(stmt.get(), 3);
+            }
+            sqlite3_bind_text(stmt.get(), 4, to_status.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt.get(), 5, fields_text.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
+                sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+                return std::unexpected(domain::Error::TableNotFound);
+            }
+            outbox_id = static_cast<std::uint64_t>(sqlite3_last_insert_rowid(db_));
+        }
+
+        if (sqlite3_exec(db_, "COMMIT", nullptr, nullptr, nullptr) != SQLITE_OK) {
+            return std::unexpected(domain::Error::TableNotFound);
+        }
+
+        return ports::SubmitResult{
+            .version = exists ? current_version + 1 : 1,
+            .from_status = current_status,
+            .created = !exists,
+            .outbox_id = outbox_id,
+        };
+    }
+
+    // Best-effort bookkeeping, deliberately outside submit()'s
+    // transaction — delivering to a live in-memory subscriber isn't a
+    // SQLite operation, so it can never be made atomic with the write
+    // above (that's the whole reason the outbox exists: to durably
+    // record the event regardless of whether delivery succeeds). A row
+    // that never gets marked published just means "was there a live
+    // subscriber to tell" is still open — the write itself already
+    // committed either way.
+    void mark_published(std::uint64_t outbox_id) {
+        std::lock_guard lock(mutex_);
+        detail::Statement stmt(db_,
+            "UPDATE outbox SET published_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?");
+        sqlite3_bind_int64(stmt.get(), 1, static_cast<sqlite3_int64>(outbox_id));
+        sqlite3_step(stmt.get());
     }
 
     [[nodiscard]] std::vector<domain::RowPtr>

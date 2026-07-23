@@ -7,12 +7,15 @@
 #   ./status.sh              # last 20 lines of each log (default)
 #   ./status.sh 50           # last 50 lines instead
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."   # repo root
+cd "$(dirname "${BASH_SOURCE[0]}")"
+source ./_common.sh   # same NEXUS_DB_PATH setup.sh/run.sh use
+cd ..   # repo root
 
 LINES="${1:-20}"
 NEXUS_PORT="${NEXUS_PORT:-7878}"
 
 echo "== nexus_server =========================================="
+echo "db: $NEXUS_DB_PATH"
 EXE=$(find . \( -path "*/cmake-build-*/apps/nexus_server/nexus_server" \
                  -o -path "*/cmake-build-*/apps/nexus_server/nexus_server.exe" \) \
               -type f 2>/dev/null | head -n 1)

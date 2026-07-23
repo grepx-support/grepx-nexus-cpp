@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package nexus.proto;
+
+// Schema-first counterpart to the hand-rolled text wire format in
+// libs/protocol/include/nexus/protocol/codec.hpp — same messages, same
+// meaning, generated C++ and Python bindings instead of two hand-written
+// codecs that have to be kept in sync by hand (see codec.hpp's
+// detail::encode_fields/parse_fields and codec/fields.py/values.py,
+// which are exactly that: the same wire scheme, implemented twice).
+//
+// This file defines the schema only. Nothing in the server or client
+// speaks this format yet — see libs/proto/CMakeLists.txt and the
+// commented-out add_subdirectory(libs/proto) at the repo root for why,
+// and the follow-up plan for actually switching the wire framing over.
+
+// A single field value. Mirrors the i:/d:/b:/s:/n: tag scheme from the
+// text protocol, but as real typed fields instead of a string tag —
+// this is the concrete win over the current codec: no more "s:" prefix
+// parsing, no more "field values can't contain ';' or '='" restriction.
+message Value {
+    oneof kind {
+        bool is_null = 1;
+        int64 int_value = 2;
+        double double_value = 3;
+        bool bool_value = 4;
+        string string_value = 5;
+    }
+}
+
+message Row {
+    string key = 1;
+    map<string, Value> fields = 2;
+}
+
+// ---- requests (client -> server) ----
+
+message AuthRequest {
+    string username = 1;
+    string password = 2;
+    string application_name = 3;
+    string access_mode = 4;
+}
+
+message SelectRequest {
+    string table = 1;
+    string criteria = 2;
+}
+
+message InsertRequest {
+    string table = 1;
+    Row row = 2;
+}
+
+message SubscribeRequest {
+    string subscription_id = 1;
+    string table = 2;
+    string criteria = 3;
+}
+
+message TransitionRequest {
+    string table = 1;
+    string key = 2;
+    string from_status = 3;
+    string to_status = 4;
+    uint64 expected_version = 5;
+    Row row = 6;
+}
+
+// One business transaction, submitted once — see
+// libs/application/include/nexus/application/submit_service.hpp. No
+// from_status/expected_version: the server reads the row's current
+// state itself, inside the same atomic operation that applies the
+// write, so there's nothing for a client to have read first and race
+// on.
+message SubmitRequest {
+    string table = 1;
+    string key = 2;
+    Row row = 3;
+}
+
+message Request {
+    oneof kind {
+        AuthRequest auth = 1;
+        SelectRequest select = 2;
+        InsertRequest insert = 3;
+        SubscribeRequest subscribe = 4;
+        TransitionRequest transition = 5;
+        SubmitRequest submit = 6;
+    }
+}
+
+// ---- responses / events (server -> client) ----
+
+message Ok {
+    // TRANSITION/SUBMIT success: the row's new version. Unset (0) for
+    // every other request type, which has nothing to report here.
+    uint64 version = 1;
+}
+
+message Err {
+    string message = 1;
+}
+
+message Event {
+    string table = 1;
+    Row row = 2;
+}
+
+message Response {
+    oneof kind {
+        Ok ok = 1;
+        Err err = 2;
+        Row row = 3;   // one ROW line from a SELECT's result set
+        bool end = 4;   // END marker closing a SELECT's result set
+        Event event = 5;
+    }
+}

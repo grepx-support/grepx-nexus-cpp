@@ -1,5 +1,5 @@
 """Shared NexusApplication config for order_demo — both flask_frontend.py
-and nexus_worker.py call create_order_app() from here so the table names
+and main.py call create_order_app() from here so the table names
 and state machine live in exactly one place. Mirrors trade_demo/app_model.py
 exactly — same shape, order_demo-specific names — so the two example
 demos read the same way side by side.
@@ -8,7 +8,7 @@ demos read the same way side by side.
 libs/statemachine/include/nexus/statemachine/transaction_transitions.hpp.
 
 A *factory function* rather than a module-level singleton on purpose:
-flask_frontend.py and nexus_worker.py run as separate processes but both
+flask_frontend.py and main.py run as separate processes but both
 import this module, and each needs its own application_name —
 nexus_server rejects a second concurrent login sharing the same
 (application_name, access_mode) pair (see libs/session).
@@ -21,13 +21,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))  # repo/p
 
 from nexus_api import NexusApplication, NexusClient
 
-NEW_ORDER_TABLE = "NewOrderRequest"
+# Stage name — recorded in each row's "application" field (see
+# envelope.py) so "which stage produced this" is still answerable from
+# the row itself. No longer a separate SQL table: the server's outbox
+# table now durably records every submit() atomically with the snapshot
+# write (see libs/persistence's SqliteSnapshotStore::submit()).
+NEW_ORDER_STAGE = "NewOrderRequest"
 SNAPSHOT_TABLE = "orders"
 
-TRANSITIONS = {
-    "NEW": {"CLAIMED", "REJECTED"},
-    "CLAIMED": {"ACCEPTED", "REJECTED"},
-}
+# No client-side TRANSITIONS dict — the server is the sole authority on
+# what's a legal move (see
+# libs/statemachine/include/nexus/statemachine/transaction_transitions.hpp),
+# validated inside the same atomic submit() that applies the write.
 
 # Demo-only default credentials — seed with:
 #   scripts/setup.sh   (or directly: python python/seed_user.py $NEXUS_USERNAME $NEXUS_PASSWORD)
@@ -39,5 +44,4 @@ def create_order_app(application_name: str) -> NexusApplication:
     return NexusApplication(
         client=NexusClient(NEXUS_USERNAME, NEXUS_PASSWORD, application_name),
         snapshot_table=SNAPSHOT_TABLE,
-        transitions=TRANSITIONS,
     )

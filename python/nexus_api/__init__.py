@@ -11,9 +11,10 @@ Layout — interface separated from implementation, one class per file:
                      imports from here
     models/         plain data types (Row, Subscription)
     codec/          wire encode/decode, pure functions
-    application/    NexusApplication — the reusable stage-tables +
-                     snapshot + state-machine model for building a new
-                     app on Nexus
+    application/    NexusApplication (the reusable snapshot-table +
+                     submit() model) and RecoveringSubscriber (the
+                     subscribe/recover/drain/go-live startup sequence)
+                     for building a new app on Nexus
     logging_config.py   nanosecond-precision logging setup, shared by
                          every entrypoint
 
@@ -23,7 +24,7 @@ instantiate) but implements ClientInterface — code that only needs to
 ClientInterface instead, the same way application/nexus_application.py
 does.
 """
-from .application import NexusApplication
+from .application import NexusApplication, RecoveringSubscriber
 from .impl.nexus_client import NexusClient
 from .interfaces import ClientInterface, ConnectionInterface
 from .models import Row, Subscription
@@ -31,6 +32,7 @@ from .models import Row, Subscription
 __all__ = [
     "NexusClient",
     "NexusApplication",
+    "RecoveringSubscriber",
     "Row",
     "Subscription",
     "ClientInterface",

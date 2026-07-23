@@ -1,5 +1,6 @@
-"""ClientInterface — the four operations a service needs against
-nexus_server: INSERT, SELECT, SUBSCRIBE, TRANSITION. impl/nexus_client.py
+"""ClientInterface — the operations a service needs against nexus_server:
+INSERT, SELECT, SUBSCRIBE, SUBMIT (and TRANSITION, kept for lower-level
+callers that already have an expected_version in hand). impl/nexus_client.py
 is the concrete implementation; NexusApplication (application/) depends
 on this abstraction rather than the concrete class, so it never needs to
 know how a request actually reaches the server.
@@ -27,6 +28,19 @@ class ClientInterface(ABC):
                    expected_version: int, fields: dict) -> int:
         """Compare-and-swap status transition. Returns the new version;
         raises on conflict or an illegal transition."""
+
+    @abstractmethod
+    def submit(self, table: str, key: str, fields: dict) -> int:
+        """One business transaction, submitted once. The server reads the
+        row's current status itself and validates the transition
+        server-side (see libs/application/submit_service.hpp) — unlike
+        transition(), callers never supply from_status or
+        expected_version, because there's nothing for them to have read
+        first that could go stale. `fields` must include a "status" key;
+        that's both the row's new status and, along with whatever
+        row currently exists (if any), what the server's state machine
+        validates against. Returns the new version; raises on an illegal
+        transition."""
 
     @abstractmethod
     def subscribe(self, table: str, criteria: str, on_event: Callable[[Row], None],

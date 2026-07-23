@@ -130,6 +130,23 @@ class NexusClient(ClientInterface):
                            table, key, from_status, to_status, response)
             raise RuntimeError(f"transition failed: {response}")
 
+    def submit(self, table: str, key: str, fields: dict) -> int:
+        with self._lock:
+            conn = self._get_conn()
+            conn.send_line(f"SUBMIT {table} {key} {encode_fields(fields)}")
+            response = conn.recv_line()
+            if response is None:
+                logger.error("submit failed: no response, table=%s key=%s", table, key)
+                raise RuntimeError("no response from Nexus")
+            if response.startswith("OK"):
+                new_version = int(response.split(" ", 1)[1])
+                logger.debug("submit OK: table=%s key=%s status=%s version=%d",
+                            table, key, fields.get("status"), new_version)
+                return new_version
+            logger.warning("submit rejected: table=%s key=%s status=%s response=%s",
+                           table, key, fields.get("status"), response)
+            raise RuntimeError(f"submit failed: {response}")
+
     def subscribe(self, table: str, criteria: str, on_event: Callable[[Row], None],
                   subscription_id: Optional[str] = None) -> Subscription:
         """Opens the dedicated long-lived SUBSCRIBE connection and calls

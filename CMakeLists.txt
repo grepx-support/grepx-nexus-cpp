@@ -21,6 +21,11 @@ add_subdirectory(libs/net)
 add_subdirectory(libs/protocol)
 add_subdirectory(libs/engine)
 add_subdirectory(libs/persistence)
+# Fetches and builds protobuf from source on first use — a genuinely
+# slow, higher-risk build (see libs/proto/CMakeLists.txt's comment).
+# Opt in by uncommenting once you're ready to pay that cost; nothing
+# currently on the wire depends on it.
+#add_subdirectory(libs/proto)
 #add_subdirectory(apps/nexus_demo)
 add_subdirectory(apps/nexus_server)
 #add_subdirectory(apps/nexus_client)

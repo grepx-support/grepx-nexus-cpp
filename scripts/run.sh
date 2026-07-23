@@ -15,7 +15,9 @@
 # nothing here can fix that — only a rebuild can. The warning below is
 # this script's only defense against silently launching a stale build.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."   # repo root
+cd "$(dirname "${BASH_SOURCE[0]}")"
+source ./_common.sh   # exports NEXUS_DB_PATH — same file setup.sh applied schema to
+cd ..   # repo root
 
 EXE=$(find . \( -path "*/cmake-build-*/apps/nexus_server/nexus_server" \
                  -o -path "*/cmake-build-*/apps/nexus_server/nexus_server.exe" \) \
@@ -110,6 +112,7 @@ fix_missing_dlls() {
     return 1
 }
 
+echo "db: $NEXUS_DB_PATH"
 echo "starting $EXE"
 
 # Plain invocation, not `exec`: MSYS bash's exec doesn't reliably
