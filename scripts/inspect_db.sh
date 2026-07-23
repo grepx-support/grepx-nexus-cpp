@@ -7,5 +7,7 @@
 #   ./inspect_db.sh path/to/db       # just that one
 #   ./inspect_db.sh --table orders   # only that logical/SQL table
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/../python"
+cd "$(dirname "${BASH_SOURCE[0]}")"
+source ./_common.sh   # same NEXUS_DB_PATH setup.sh/start_nexus_server.sh use — one file, not two
+cd ../python
 python inspect_db.py "$@"

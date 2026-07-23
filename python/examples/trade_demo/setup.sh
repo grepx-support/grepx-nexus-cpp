@@ -16,7 +16,7 @@
 #
 # You still need, separately (not done by this script):
 #   nexus_server built and running (see repo root README / CMake, and
-#   scripts/run.sh). nexus_server prints the absolute DB path it opened
+#   scripts/start_nexus_server.sh). nexus_server prints the absolute DB path it opened
 #   on startup — if that doesn't match what scripts/setup.sh applied
 #   schema to, set NEXUS_DB_PATH the same way on both sides.
 set -euo pipefail

@@ -38,5 +38,20 @@ namespace nexus::protocol {
         std::string access_mode;      // e.g. "ALL" or "SELECT,SUBSCRIBE" — recorded for audit
     };
 
-    using Request = std::variant<AuthRequest, SelectRequest, InsertRequest, SubscribeRequest, TransitionRequest>;
+    // One business transaction, submitted once. Unlike TransitionRequest,
+    // the caller does NOT supply from_status or expected_version — the
+    // server reads the row's current state itself, inside the same
+    // atomic operation that applies the write (see
+    // nexus::application::SubmitService / ports::SubmitWriter), so
+    // there's nothing for a client to read first, get stale, or race on.
+    // `row` carries the requested status via its own "status" field
+    // (same envelope shape client code already builds for INSERT).
+    struct SubmitRequest {
+        domain::TableName table;
+        std::string key;
+        domain::RowPtr row;
+    };
+
+    using Request = std::variant<AuthRequest, SelectRequest, InsertRequest, SubscribeRequest, TransitionRequest,
+                                  SubmitRequest>;
 } // namespace nexus::protocol

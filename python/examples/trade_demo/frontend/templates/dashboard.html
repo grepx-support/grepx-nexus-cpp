@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>trade_demo</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+<h1>trade_demo — NewRequest &rarr; Nexus &rarr; BackEndServer</h1>
+
+<form id="submit-form">
+  <input name="symbol" placeholder="symbol (e.g. AAPL)" required>
+  <input name="side" placeholder="side (BUY/SELL)" required>
+  <input name="qty" type="number" placeholder="qty" required>
+  <input name="price" type="number" step="0.01" placeholder="price" required>
+  <button type="submit">Submit trade</button>
+  <button type="button" id="refresh-btn">Refresh</button>
+</form>
+<div id="msg"></div>
+<div id="poll-status"></div>
+
+<table>
+  <thead>
+    <tr><th>trade_id</th><th>status</th><th>application</th><th>username</th>
+        <th>symbol</th><th>side</th><th>qty</th><th>price</th><th>occurred_at</th></tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

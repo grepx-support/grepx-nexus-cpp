@@ -2,6 +2,7 @@
 #include "nexus/application/dispatch_service.hpp"
 #include "nexus/application/insert_service.hpp"
 #include "nexus/application/select_service.hpp"
+#include "nexus/application/submit_service.hpp"
 #include "nexus/application/subscribe_service.hpp"
 #include "nexus/application/transition_service.hpp"
 #include "nexus/domain/change_event.hpp"
@@ -32,6 +33,7 @@ namespace nexus::app {
         using SubscribeSvc = application::SubscribeService<Registry, Parser>;
         using DispatchSvc = application::DispatchService<Registry>;
         using TransitionSvc = application::TransitionService<Store, Log, Bus>;
+        using SubmitSvc = application::SubmitService<Store, Bus>;
         using SessionMgr = session::SessionManager<SessionRegistryT, LoginAuditT>;
 
         AppEngine()
@@ -40,6 +42,7 @@ namespace nexus::app {
               insert_(store_, log_, bus_),
               subscribe_(registry_, parser_),
               transition_(store_, log_, bus_, statemachine::transition_state_machine()),
+              submit_(store_, bus_, statemachine::transition_state_machine()),
               sessions_(session_registry_, login_audit_) {
             bus_.set_handler([this](const domain::ChangeEvent &event) { dispatch_.on_event(event); });
         }
@@ -48,6 +51,11 @@ namespace nexus::app {
         [[nodiscard]] InsertSvc &insert() { return insert_; }
         [[nodiscard]] SubscribeSvc &subscribe() { return subscribe_; }
         [[nodiscard]] TransitionSvc &transition() { return transition_; }
+        // One-call replacement for "insert a stage row, then
+        // insert/transition the snapshot row" — see SubmitService for
+        // why that used to be two non-atomic network round trips and
+        // now is not.
+        [[nodiscard]] SubmitSvc &submit() { return submit_; }
         [[nodiscard]] const Parser &criteria_parser() const { return parser_; }
         [[nodiscard]] const Log &audit_log() const { return log_; }
         // Exposed mainly so a runner (nexus_server's main.cpp) can print
@@ -71,6 +79,7 @@ namespace nexus::app {
         InsertSvc insert_;
         SubscribeSvc subscribe_;
         TransitionSvc transition_;
+        SubmitSvc submit_;
         SessionMgr sessions_;
     };
 } // namespace nexus::app

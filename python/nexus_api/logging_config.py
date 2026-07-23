@@ -1,5 +1,5 @@
 """Standard library `logging` setup, shared by nexus_api and every demo
-entrypoint (flask_frontend.py, nexus_worker.py, backend_worker.py, ...).
+entrypoint (flask_frontend.py, main.py, ...).
 
 Timestamps carry full nanosecond precision. logging.Formatter only goes
 to milliseconds out of the box (%(msecs)d comes from time.time(), a

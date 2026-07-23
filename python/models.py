@@ -84,3 +84,39 @@ USER_LOGIN = Table(
 )
 
 ALL_TABLES: list[Table] = [NEXUS_ROWS, USERS, USER_LOGIN]
+
+# Durable outbox — the single record of "a business transaction was
+# submitted" for every snapshot-table write, in the same SQLite
+# transaction as the snapshot upsert (see
+# libs/persistence/include/nexus/persistence/sqlite_snapshot_store.hpp,
+# SqliteSnapshotStore::submit()). This replaces the old pattern of one
+# hand-named SQL "stage table" per lifecycle stage (NewRequest,
+# BackEndServer, ...) — those were really just insert() calls against
+# nexus_rows under a different table_name, not an actual audit/outbox
+# mechanism, and writing them was a second, non-atomic network round
+# trip the client had to make itself.
+#
+# published_at is set once the server has handed the event to its
+# in-memory subscriber bus — NULL means "durably recorded, not yet
+# delivered to any live subscriber" (e.g. server restarted between
+# commit and publish). A row here is never lost even if delivery is;
+# it's what makes catch-up/replay possible instead of best-effort-only.
+#
+# Plain SQL, not a Table() — Table/Column only model natural/composite
+# primary keys (every other table here uses one); outbox needs an
+# AUTOINCREMENT surrogate key instead, which isn't worth generalizing
+# Column for one table.
+OUTBOX_SQL = """\
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    transaction_id TEXT NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_unpublished ON outbox(published_at)
+    WHERE published_at IS NULL;
+"""

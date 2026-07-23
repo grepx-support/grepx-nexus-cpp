@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stops a running nexus_server process (started via ./run.sh in another
+# Stops a running nexus_server process (started via ./start_nexus_server.sh in another
 # terminal). Ctrl+C in that terminal does the same thing directly — this
 # is for stopping it from a *different* terminal/window without having
 # to go find the one running it.
@@ -13,20 +13,20 @@ set -uo pipefail
 
 if command -v taskkill >/dev/null 2>&1; then
     if taskkill //F //IM nexus_server.exe >/dev/null 2>&1; then
-        echo "stop_server.sh: stopped nexus_server.exe"
+        echo "stop_nexus_server.sh: stopped nexus_server.exe"
         exit 0
     fi
-    echo "stop_server.sh: no running nexus_server.exe found." >&2
+    echo "stop_nexus_server.sh: no running nexus_server.exe found." >&2
     exit 1
 fi
 
 PIDS=$( (ps -ef 2>/dev/null || ps -A 2>/dev/null) | grep '[n]exus_server' | awk '{print $1}')
 if [ -z "$PIDS" ]; then
-    echo "stop_server.sh: no running nexus_server process found." >&2
+    echo "stop_nexus_server.sh: no running nexus_server process found." >&2
     exit 1
 fi
 
 for pid in $PIDS; do
-    echo "stop_server.sh: stopping nexus_server (pid $pid)"
+    echo "stop_nexus_server.sh: stopping nexus_server (pid $pid)"
     kill "$pid" 2>/dev/null || true
 done

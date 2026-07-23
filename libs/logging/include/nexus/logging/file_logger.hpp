@@ -8,8 +8,8 @@
 
 namespace nexus::logging {
 
-// Appends "[timestamp] [LEVEL] message" lines to a file — same format
-// as ConsoleLogger, just a different destination. Creates parent
+// Appends "[timestamp] [LEVEL] [tid=...] message" lines to a file — same
+// format as ConsoleLogger, just a different destination. Creates parent
 // directories if they don't exist yet (e.g. a fresh checkout's first
 // run, before any logs/ directory exists).
 class FileLogger : public ILogger {
@@ -25,6 +25,7 @@ public:
     void log(LogLevel level, std::string_view message) override {
         std::lock_guard lock(mutex_);
         out_ << "[" << detail::now_timestamp() << "] [" << to_string(level) << "] "
+             << "[tid=" << detail::current_thread_id() << "] "
              << message << std::endl;
     }
 
