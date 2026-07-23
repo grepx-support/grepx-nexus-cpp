@@ -16,7 +16,7 @@
 # this script's only defense against silently launching a stale build.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
-source ./_common.sh   # exports NEXUS_DB_PATH — same file setup.sh applied schema to
+source ./_common.sh   # exports NEXUS_DB_PATH/NEXUS_LOG_PATH — same locations setup.sh/status_nexus_server.sh use
 cd ..   # repo root
 
 EXE=$(find . \( -path "*/cmake-build-*/apps/nexus_server/nexus_server" \
@@ -24,7 +24,7 @@ EXE=$(find . \( -path "*/cmake-build-*/apps/nexus_server/nexus_server" \
               -type f 2>/dev/null | head -n 1)
 
 if [ -z "$EXE" ]; then
-    echo "run.sh: no built nexus_server found under any cmake-build-*/ directory." >&2
+    echo "start_nexus_server.sh: no built nexus_server found under any cmake-build-*/ directory." >&2
     echo "Build the nexus_server CMake target first, then re-run this." >&2
     exit 1
 fi
@@ -37,7 +37,7 @@ SRC_DIR="apps/nexus_server/src"
 if [ -d "$SRC_DIR" ]; then
     NEWEST_SRC=$(find "$SRC_DIR" -name '*.cpp' -o -name '*.hpp' 2>/dev/null | xargs -r ls -t 2>/dev/null | head -n 1)
     if [ -n "$NEWEST_SRC" ] && [ "$NEWEST_SRC" -nt "$EXE" ]; then
-        echo "run.sh: WARNING — $EXE is older than $NEWEST_SRC." >&2
+        echo "start_nexus_server.sh: WARNING — $EXE is older than $NEWEST_SRC." >&2
         echo "This binary predates a source change and may be missing recent" >&2
         echo "features (logging, auth, sessions, ...). Rebuild nexus_server" >&2
         echo "(CLion's Build button, or cmake --build <dir> --target nexus_server)" >&2
@@ -63,7 +63,7 @@ fix_missing_dlls() {
         # hand them the one tool that's always available instead: Windows
         # itself. Double-clicking the exe (or running it from cmd.exe)
         # pops a dialog naming the exact missing DLL.
-        echo "run.sh: can't auto-diagnose — 'ldd' isn't available in this" >&2
+        echo "start_nexus_server.sh: can't auto-diagnose — 'ldd' isn't available in this" >&2
         echo "bash. To find the missing DLL by name, either:" >&2
         echo "  - double-click $EXE in File Explorer (Windows will show a" >&2
         echo "    dialog naming the missing DLL), or" >&2
@@ -78,7 +78,7 @@ fix_missing_dlls() {
     missing=$(ldd "$EXE" 2>/dev/null | awk '/not found/ {print $1}')
     [ -z "$missing" ] && return 1
 
-    echo "run.sh: missing DLL dependencies (this is why it's exiting 127):" >&2
+    echo "start_nexus_server.sh: missing DLL dependencies (this is why it's exiting 127):" >&2
     echo "$missing" | sed 's/^/  /' >&2
 
     local search_dirs=(
@@ -96,12 +96,12 @@ fix_missing_dlls() {
     done
 
     if [ -n "$found_dir" ]; then
-        echo "run.sh: found a matching runtime at $found_dir — adding to PATH and retrying." >&2
+        echo "start_nexus_server.sh: found a matching runtime at $found_dir — adding to PATH and retrying." >&2
         export PATH="$found_dir:$PATH"
         return 0
     fi
 
-    echo "run.sh: couldn't find those DLLs in the usual MSYS2 toolchain" >&2
+    echo "start_nexus_server.sh: couldn't find those DLLs in the usual MSYS2 toolchain" >&2
     echo "locations. Fix: add the bin/ directory that contains them (your" >&2
     echo "MinGW toolchain's — check CLion's Settings > Build, Execution," >&2
     echo "Deployment > Toolchains for its path) to PATH before running this" >&2
@@ -113,6 +113,7 @@ fix_missing_dlls() {
 }
 
 echo "db: $NEXUS_DB_PATH"
+echo "log: $NEXUS_LOG_PATH"
 echo "starting $EXE"
 
 # Plain invocation, not `exec`: MSYS bash's exec doesn't reliably
@@ -142,13 +143,13 @@ while true; do
     if [ "$status" -eq 127 ] && [ "$dll_fix_attempted" != true ]; then
         dll_fix_attempted=true
         if fix_missing_dlls; then
-            echo "run.sh: retrying with fixed PATH..." >&2
+            echo "start_nexus_server.sh: retrying with fixed PATH..." >&2
             continue
         fi
     fi
 
     if [ "$attempt" -ge 3 ]; then
-        echo "run.sh: $EXE failed to start after $attempt attempts (exit $status)." >&2
+        echo "start_nexus_server.sh: $EXE failed to start after $attempt attempts (exit $status)." >&2
         if [ "$status" -eq 127 ]; then
             echo "Exit 127 means a missing DLL dependency, not an AV lock — see" >&2
             echo "the diagnosis above." >&2
@@ -159,7 +160,7 @@ while true; do
         fi
         exit "$status"
     fi
-    echo "run.sh: launch attempt $attempt failed (exit $status), retrying..." >&2
+    echo "start_nexus_server.sh: launch attempt $attempt failed (exit $status), retrying..." >&2
     attempt=$((attempt + 1))
     sleep 1
 done

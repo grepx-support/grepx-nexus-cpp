@@ -29,29 +29,41 @@ Usage:
 from __future__ import annotations
 
 import html
+import itertools
 import sqlite3
 import sys
 from pathlib import Path
 
 from create_schema import resolve_db_paths
-from nexus_api.codec import decode_fields
+from nexus_api.codec import decode_fields, decode_storage_fields
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def safe_decode_fields(raw: str) -> dict:
-    """decode_fields() assumes every row was written in the "k=type:v;..."
-    wire format the Python SDK produces — but nexus_rows can hold rows
-    written by other paths too (the C++ statemachine/audit-log writer, an
-    older format, hand-inserted test data, ...) that don't necessarily
-    match it. One row like that used to take the whole inspector down;
-    now it just shows up as a single _raw column instead of an unhandled
-    exception, so one odd row never hides everything else in the table.
+    """nexus_rows.fields and outbox.fields are written straight to SQLite
+    by nexus_server's C++ SqliteSnapshotStore, which uses control-
+    character delimiters ('\\x1e'/'\\x1f') — see decode_storage_fields()'s
+    docstring. That's tried first since it's what every real row on disk
+    actually looks like. decode_fields() (the ';'/'=' wire-protocol
+    format NexusClient speaks over TCP, never written straight to SQLite
+    by anything in this repo) is tried second only in case some row was
+    hand-inserted in that format for a test. If neither parses, one odd
+    row still just shows up as a single _raw column instead of taking
+    the whole inspector down with an unhandled exception.
     """
+    if not raw:
+        return {}
+    decoded = decode_storage_fields(raw)
+    if decoded:
+        return decoded
     try:
-        return decode_fields(raw)
+        decoded = decode_fields(raw)
+        if decoded:
+            return decoded
     except (ValueError, IndexError):
-        return {"_raw": raw}
+        pass
+    return {"_raw": raw}
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +138,47 @@ def collect_nexus_rows_groups(
     return groups
 
 
+def collect_outbox_rows(conn: sqlite3.Connection) -> tuple[list[str], list[list]]:
+    """Same idea as collect_nexus_rows_groups but for outbox: every other
+    column (id/table_name/transaction_id/from_status/to_status/
+    occurred_at/published_at) stays as-is, and the fields blob column
+    gets decoded and spread into one column per field key — instead of
+    one long unreadable string, same reasoning as nexus_rows.fields."""
+    raw_rows = conn.execute(
+        "SELECT id, table_name, transaction_id, from_status, to_status, fields, occurred_at, published_at "
+        "FROM outbox ORDER BY id"
+    ).fetchall()
+
+    decoded = [
+        (id_, table_name, transaction_id, from_status, to_status, safe_decode_fields(fields), occurred_at, published_at)
+        for id_, table_name, transaction_id, from_status, to_status, fields, occurred_at, published_at in raw_rows
+    ]
+
+    # outbox's own fixed columns (transaction_id, occurred_at) happen to
+    # share names with keys the submitted business row's own fields dict
+    # commonly carries too (every demo's app_model.py includes both in
+    # its fields=... — see business_logic.py). Decoding would otherwise
+    # produce two same-named columns showing the same value twice; the
+    # fixed column already answers "what transaction/when", so skip
+    # those specific keys from the decoded-field columns.
+    fixed_columns = {"id", "table_name", "transaction_id", "from_status", "to_status", "occurred_at", "published_at"}
+    field_keys: list[str] = []
+    for row in decoded:
+        for key in row[5]:
+            if key not in field_keys and key not in fixed_columns:
+                field_keys.append(key)
+
+    headers = ["id", "table_name", "transaction_id", "from_status", "to_status"] + field_keys + \
+              ["occurred_at", "published_at"]
+    rows = [
+        [id_, table_name, transaction_id, from_status, to_status] +
+        [fields.get(key, "") for key in field_keys] +
+        [occurred_at, published_at]
+        for id_, table_name, transaction_id, from_status, to_status, fields, occurred_at, published_at in decoded
+    ]
+    return headers, rows
+
+
 # --------------------------------------------------------------------------
 # Console output
 # --------------------------------------------------------------------------
@@ -147,7 +200,17 @@ def print_db_console(db_path: Path, only_table: str | None) -> None:
             print("  (no tables at all -- schema not applied yet, run scripts/setup.sh)\n")
             return
 
-        if "nexus_rows" in tables and (not only_table or only_table != "nexus_rows"):
+        # only_table might name a real SQL table (outbox, users, ...) or a
+        # logical table_name that only exists inside nexus_rows
+        # (transactions, NewRequest, ...) — those are two different
+        # things filtered two different ways, so tell them apart by
+        # whether only_table is actually one of the real tables that
+        # exist in this DB. Without this, "--table outbox" used to still
+        # print every nexus_rows group alongside it — noise when the
+        # whole point was to look at outbox on its own.
+        other_real_tables = set(tables) - {"nexus_rows"}
+        show_nexus_rows = "nexus_rows" in tables and (not only_table or only_table not in other_real_tables)
+        if show_nexus_rows:
             groups = collect_nexus_rows_groups(conn, None if not only_table or only_table == "nexus_rows" else only_table)
             if not groups:
                 print("nexus_rows: (empty -- nothing submitted yet, or wrong DB file/wrong table_name)\n")
@@ -161,7 +224,7 @@ def print_db_console(db_path: Path, only_table: str | None) -> None:
                 continue
             if only_table and table != only_table:
                 continue
-            headers, rows = collect_plain_table(conn, table)
+            headers, rows = collect_outbox_rows(conn) if table == "outbox" else collect_plain_table(conn, table)
             print(f"{table} ({len(rows)} row{'s' if len(rows) != 1 else ''})")
             print(render_table(headers, rows) if rows else "  (empty)")
             print()
@@ -174,18 +237,29 @@ def print_db_console(db_path: Path, only_table: str | None) -> None:
 # run, so "what's actually in the database" is a double-click away
 # instead of a terminal squint.
 # --------------------------------------------------------------------------
-def _html_table(headers: list[str], rows: list[list]) -> str:
+def _html_table(table_id: str, headers: list[str], rows: list[list]) -> str:
     if not rows:
         return "<p class='empty'>(empty)</p>"
     thead = "".join(f"<th>{html.escape(str(h))}</th>" for h in headers)
     tbody = "".join(
         "<tr>" + "".join(f"<td>{html.escape(str(c))}</td>" for c in row) + "</tr>" for row in rows
     )
-    return f"<table><thead><tr>{thead}</tr></thead><tbody>{tbody}</tbody></table>"
+    # One filter box per table, not one global search — grepping "which
+    # table has a row matching X" is a different question from "narrow
+    # down the table I'm already looking at", and a per-table box
+    # answers the second one without also hiding every other table's
+    # rows while you're typing. Plain substring match across every cell
+    # in a row, case-insensitive — "basic filtering", not a query language.
+    filter_box = (
+        f'<input type="text" class="filter-box" data-target="{table_id}" '
+        f'placeholder="filter rows…" oninput="filterTable(this)">'
+    )
+    return f"{filter_box}<table id='{table_id}'><thead><tr>{thead}</tr></thead><tbody>{tbody}</tbody></table>"
 
 
 def build_html_report(db_paths: list[Path], only_table: str | None) -> str:
     sections = []
+    table_ids = (f"tbl-{i}" for i in itertools.count(1))
     for db_path in db_paths:
         section = [f"<h2>{html.escape(str(db_path.resolve()))}</h2>"]
         if not db_path.exists():
@@ -206,13 +280,13 @@ def build_html_report(db_paths: list[Path], only_table: str | None) -> str:
                     conn, None if not only_table or only_table == "nexus_rows" else only_table
                 ):
                     section.append(f"<h3>nexus_rows &rarr; {html.escape(name)} ({len(rows)})</h3>")
-                    section.append(_html_table(headers, rows))
+                    section.append(_html_table(next(table_ids), headers, rows))
             for table in tables:
                 if table == "nexus_rows" or (only_table and table != only_table):
                     continue
-                headers, rows = collect_plain_table(conn, table)
+                headers, rows = collect_outbox_rows(conn) if table == "outbox" else collect_plain_table(conn, table)
                 section.append(f"<h3>{html.escape(table)} ({len(rows)})</h3>")
-                section.append(_html_table(headers, rows))
+                section.append(_html_table(next(table_ids), headers, rows))
         finally:
             conn.close()
         sections.append("".join(section))
@@ -229,8 +303,22 @@ def build_html_report(db_paths: list[Path], only_table: str | None) -> str:
   th {{ background: #f0f0f0; }}
   tr:nth-child(even) {{ background: #fafafa; }}
   .empty {{ color: #888; font-style: italic; }}
+  .filter-box {{
+    display: block; margin: .5rem 0 .25rem; padding: 4px 8px; font-size: .85rem;
+    border: 1px solid #ccc; border-radius: 4px; width: 22rem; max-width: 100%;
+  }}
 </style></head>
-<body><h1>Nexus DB inspection</h1>{body}</body></html>"""
+<body><h1>Nexus DB inspection</h1>{body}
+<script>
+function filterTable(input) {{
+  const term = input.value.toLowerCase();
+  const table = document.getElementById(input.dataset.target);
+  table.querySelectorAll('tbody tr').forEach(function (tr) {{
+    tr.style.display = tr.textContent.toLowerCase().includes(term) ? '' : 'none';
+  }});
+}}
+</script>
+</body></html>"""
 
 
 # --------------------------------------------------------------------------

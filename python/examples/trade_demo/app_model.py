@@ -43,8 +43,13 @@ NEXUS_USERNAME = os.environ.get("NEXUS_USERNAME", "demo")
 NEXUS_PASSWORD = os.environ.get("NEXUS_PASSWORD", "demo")
 
 
-def create_trade_app(application_name: str) -> NexusApplication:
+def create_trade_app(application_name: str, access_mode: str = "ALL") -> NexusApplication:
+    """access_mode is recorded in user_login for audit (see libs/session)
+    — not an enforced ACL, just a label for which role this connection
+    is playing (see multi_client_demo/ for read-only/insert-only/
+    subscribe-and-update clients all using the same server, distinguished
+    this way in the audit trail)."""
     return NexusApplication(
-        client=NexusClient(NEXUS_USERNAME, NEXUS_PASSWORD, application_name),
+        client=NexusClient(NEXUS_USERNAME, NEXUS_PASSWORD, application_name, access_mode),
         snapshot_table=SNAPSHOT_TABLE,
     )

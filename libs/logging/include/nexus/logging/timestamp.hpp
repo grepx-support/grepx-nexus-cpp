@@ -2,7 +2,9 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <sstream>
 #include <string>
+#include <thread>
 
 namespace nexus::logging::detail {
 
@@ -33,6 +35,20 @@ inline std::string now_timestamp() {
     char full[48];
     std::snprintf(full, sizeof(full), "%s.%09lld", buf, static_cast<long long>(nanos.count()));
     return full;
+}
+
+// std::thread::id has no stable, short, printable form of its own —
+// streaming it gives an implementation-defined (often long/opaque)
+// representation, so route it through ostringstream once here rather
+// than duplicating that at every logger. nexus_server is one thread per
+// connection (see apps/nexus_server/src/main.cpp), so this is constant
+// for every line a given connection logs — one more thing (besides
+// conn=N) that ties a connection's lines together when several are
+// interleaved in the same file.
+inline std::string current_thread_id() {
+    std::ostringstream oss;
+    oss << std::this_thread::get_id();
+    return oss.str();
 }
 
 } // namespace nexus::logging::detail

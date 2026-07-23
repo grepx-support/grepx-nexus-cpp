@@ -10,20 +10,27 @@ job: if two workers see the same NEW trade, only one wins the CLAIMED
 move; the other gets rejected and backs off (see business_logic.py).
 
 Run:
-    python python/examples/trade_demo/main.py
+    python python/examples/trade_demo/backend/worker_client/main.py
+    ./backend/run.sh main      (equivalent, via the venv)
 """
 import logging
+import sys
 import time
+from pathlib import Path
 
-from app_model import SNAPSHOT_TABLE, create_trade_app
-from business_logic import handle_new_trade
-from nexus_api import RecoveringSubscriber
-from nexus_api.logging_config import configure_logging
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))  # trade_demo/, for app_model
+# business_logic is a sibling in this same folder — found via sys.path[0],
+# which Python sets to this script's own directory automatically.
+
+from app_model import SNAPSHOT_TABLE, create_trade_app  # noqa: E402
+from business_logic import handle_new_trade  # noqa: E402
+from nexus_api import RecoveringSubscriber  # noqa: E402
+from nexus_api.logging_config import configure_logging  # noqa: E402
 
 configure_logging()
 logger = logging.getLogger(__name__)
 
-# Distinct application_name from flask_frontend.py's — see app_model.py's
+# Distinct application_name from the frontend's — see app_model.py's
 # create_trade_app() docstring for why this can't be a shared singleton.
 TRADE_APP = create_trade_app("trade-demo-backend-worker")
 

@@ -12,7 +12,7 @@
 #
 # NEXUS_DB_PATH is set by _common.sh to one fixed file (repo root's
 # nexus_data.db, unless already overridden) — create_schema.py and
-# seed_user.py both apply to exactly that one file, and run.sh exports
+# seed_user.py both apply to exactly that one file, and start_nexus_server.sh exports
 # the same variable before launching nexus_server, so the schema/seed
 # step and the server always agree on the same database. Without
 # NEXUS_DB_PATH set, create_schema.py instead applies to every DB it
@@ -39,5 +39,5 @@ python3 seed_user.py "${NEXUS_USERNAME:-demo}" "${NEXUS_PASSWORD:-demo}"
 
 echo
 echo "Next, from this repo's scripts/ directory:"
-echo "  ./run.sh                                to start nexus_server (if built)"
+echo "  ./start_nexus_server.sh                                to start nexus_server (if built)"
 echo "  ./start_client.sh [order_demo|trade_demo]  to run a demo client"

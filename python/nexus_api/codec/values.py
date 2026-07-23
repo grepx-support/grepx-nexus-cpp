@@ -29,7 +29,12 @@ def decode_value(text: str):
     if tag == "d":
         return float(body)
     if tag == "b":
-        return body == "true"
+        # "true"/"false" is this module's own wire format (see
+        # encode_value above); "1"/"0" is what nexus_server's C++
+        # SqliteSnapshotStore writes to nexus_rows/outbox on disk (see
+        # decode_storage_fields() in fields.py) — accepting both here
+        # means one decode_value works for either source.
+        return body in ("true", "1")
     if tag == "s":
         return body
     raise ValueError(f"unrecognised value tag: {text!r}")

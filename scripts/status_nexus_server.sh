@@ -4,11 +4,11 @@
 # anything — read-only, safe to run anytime.
 #
 # Usage:
-#   ./status.sh              # last 20 lines of each log (default)
-#   ./status.sh 50           # last 50 lines instead
+#   ./status_nexus_server.sh              # last 20 lines of each log (default)
+#   ./status_nexus_server.sh 50           # last 50 lines instead
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
-source ./_common.sh   # same NEXUS_DB_PATH setup.sh/run.sh use
+source ./_common.sh   # same NEXUS_DB_PATH/NEXUS_LOG_PATH setup.sh/start_nexus_server.sh use
 cd ..   # repo root
 
 LINES="${1:-20}"
@@ -34,17 +34,17 @@ else
         exec 3>&-
         echo "port $NEXUS_PORT: UP (accepting connections)"
     else
-        echo "port $NEXUS_PORT: DOWN (not accepting connections — is it running? ./run.sh)"
+        echo "port $NEXUS_PORT: DOWN (not accepting connections — is it running? ./start_nexus_server.sh)"
     fi
 
-    LOG="$(dirname "$EXE")/logs/nexus_server.log"
+    LOG="$NEXUS_LOG_PATH"
     if [ -f "$LOG" ]; then
         echo "log: $LOG (last $LINES lines)"
         echo "---"
         tail -n "$LINES" "$LOG"
     else
         echo "log: not found at $LOG yet — nothing logged since last (re)build/start,"
-        echo "  or this binary predates file logging (see staleness warning above)"
+        echo "  or this binary predates NEXUS_LOG_PATH support (see staleness warning above)"
     fi
 fi
 
