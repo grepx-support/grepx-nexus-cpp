@@ -34,8 +34,8 @@ set(NEXUS_LIBS_DIR "${NEXUS_ROOT_DIR}/libs")
 function(nexus_add_dependency lib_name)
     if(NOT TARGET nexus_${lib_name})
         add_subdirectory(
-            "${NEXUS_LIBS_DIR}/${lib_name}"
-            "${CMAKE_CURRENT_BINARY_DIR}/_deps/nexus_${lib_name}"
+                "${NEXUS_LIBS_DIR}/${lib_name}"
+                "${CMAKE_CURRENT_BINARY_DIR}/_deps/nexus_${lib_name}"
         )
     endif()
 endfunction()
@@ -110,9 +110,33 @@ function(nexus_add_executable target)
         # (--allow-multiple-definition) is safe, not a functional
         # workaround-of-a-workaround.
         target_link_options(${target} PRIVATE
-            -static-libgcc -static-libstdc++
-            -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic
-            -Wl,--allow-multiple-definition)
+                -static-libgcc -static-libstdc++
+                -Wl,--allow-multiple-definition)
+
+        # --whole-archive on libwinpthread.a forces in its TLS-callback
+        # registration object (needed so thread_local destructors run
+        # when winpthread is statically linked). On GCC 13.1.0 (CLion's
+        # older bundled mingw) that was safe. On GCC 15.2.0 (current
+        # bundled mingw as of CLion 2026.2), whole-archiving also drags
+        # in winpthread's cancellation-cleanup objects, which reference
+        # `__intrinsic_setjmpex` — a symbol that isn't resolvable against
+        # this build's libgcc, producing an undefined-reference link
+        # failure. That's a libwinpthread.a/libgcc version mismatch in
+        # the bundled toolchain, not something to fix in application
+        # code. Until CLion ships a matched pair (or we pin an MSYS2
+        # toolchain instead), skip the whole-archive trick on newer GCC
+        # and fall back to an ordinary static link of winpthread; if
+        # thread_local destructors turn out not to run in that
+        # configuration, revisit with a narrower fix that whole-archives
+        # only the specific TLS-callback object rather than the whole
+        # archive.
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.0)
+            target_link_options(${target} PRIVATE
+                    -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic)
+        else()
+            target_link_options(${target} PRIVATE
+                    -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+        endif()
     endif()
 endfunction()
 
