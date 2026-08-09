@@ -70,6 +70,27 @@ public:
         row_id_by_session_.erase(it);
     }
 
+    // Called exactly once, at server startup before the accept loop
+    // begins (see run_server() in apps/nexus_server/src/main.cpp) —
+    // never during normal operation, where a LOGGED_IN row is exactly
+    // what it should be. Distinct status ('ORPHANED', not 'LOGGED_OFF')
+    // so the audit trail stays honest: this was never a real logout,
+    // just this process noticing leftover rows from a previous one that
+    // didn't get to close them out gracefully.
+    void reconcile_orphaned_sessions() {
+        std::lock_guard lock(mutex_);
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db_,
+                "UPDATE user_login SET status = 'ORPHANED', logout_time = ? WHERE status = 'LOGGED_IN'",
+                -1, &stmt, nullptr) != SQLITE_OK) {
+            return;
+        }
+        std::string now = current_timestamp();
+        sqlite3_bind_text(stmt, 1, now.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
 private:
     static std::string current_timestamp() {
         std::time_t t = std::time(nullptr);

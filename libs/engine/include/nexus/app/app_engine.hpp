@@ -63,6 +63,10 @@ namespace nexus::app {
         [[nodiscard]] const Store &store() const { return store_; }
         [[nodiscard]] const Auth &authenticator() const { return auth_; }
         [[nodiscard]] SessionMgr &sessions() { return sessions_; }
+        // Exposed so a runner (nexus_server's main.cpp) can call
+        // reconcile_orphaned_sessions() once at startup, before accepting
+        // any connections — see SqliteLoginAudit for why.
+        [[nodiscard]] LoginAuditT &login_audit() { return login_audit_; }
 
     private:
         Store store_;
