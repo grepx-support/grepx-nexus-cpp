@@ -275,6 +275,15 @@ namespace {
             logging::log().info(oss.str());
         }
 
+        // SessionRegistry starts empty every process - any row this
+        // process's login_audit still considers LOGGED_IN belongs to a
+        // connection whose LogoutGuard never ran (server killed/crashed/
+        // PC restarted rather than stopped gracefully via stop_nexus_server.sh).
+        // Reconcile once, before accepting any new connections, so the
+        // audit trail doesn't claim sessions are active forever after a
+        // hard restart.
+        engine.login_audit().reconcile_orphaned_sessions();
+
         auto listener = net::TcpListener::listen(kPort);
         if (!listener) {
             logging::log().error("failed to bind port " + std::to_string(kPort));
