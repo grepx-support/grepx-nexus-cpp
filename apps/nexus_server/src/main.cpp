@@ -246,6 +246,20 @@ namespace {
                             } else {
                                 (void) send(protocol::encode_err("submit failed"));
                             }
+                        } else if constexpr (std::is_same_v<Req, protocol::LogoutRequest>) {
+                            // Explicit goodbye: log the session out NOW
+                            // rather than waiting for recv_line() to
+                            // eventually notice the socket died. Reset
+                            // session_id so LogoutGuard's own unconditional
+                            // logout() on the way out is a no-op (harmless
+                            // either way - logout() is idempotent - but
+                            // this keeps the intent explicit rather than
+                            // leaning on that as a safety net).
+                            if (session_id) {
+                                engine.sessions().logout(*session_id);
+                                session_id.reset();
+                            }
+                            (void) send(protocol::encode_ok());
                         }
                     },
                     *request);
@@ -255,6 +269,11 @@ namespace {
             } catch (...) {
                 logging::log().error(ctx() + "request failed: unknown exception");
                 (void) send(protocol::encode_err("internal error"));
+            }
+
+            if (std::holds_alternative<protocol::LogoutRequest>(*request)) {
+                logging::log().info(ctx() + "client logged out");
+                return;
             }
         }
     }
