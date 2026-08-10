@@ -52,6 +52,14 @@ namespace nexus::protocol {
         domain::RowPtr row;
     };
 
+    // Explicit graceful goodbye - lets the server log a session out the
+    // instant a well-behaved client actually intends to stop, instead of
+    // relying solely on TCP noticing the socket died (a forceful kill
+    // never gets to send this at all - see platform::enable_keepalive
+    // for that path's safety net). No fields: one connection, one
+    // session, nothing else to say.
+    struct LogoutRequest {};
+
     using Request = std::variant<AuthRequest, SelectRequest, InsertRequest, SubscribeRequest, TransitionRequest,
-                                  SubmitRequest>;
+                                  SubmitRequest, LogoutRequest>;
 } // namespace nexus::protocol

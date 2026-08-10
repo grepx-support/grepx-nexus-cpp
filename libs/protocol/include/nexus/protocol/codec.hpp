@@ -18,6 +18,7 @@ namespace nexus::protocol {
     //   SUBSCRIBE  <id> <table> <criteria...>
     //   TRANSITION <table> <key> <from> <to> <expected_version> <fields>
     //   SUBMIT     <table> <key> <fields>        (fields must include status=s:<...>)
+    //   LOGOUT     (no arguments)
     //
     //   OK
     //   OK    <detail>            (TRANSITION/SUBMIT success: <detail> is the new version)
@@ -136,7 +137,14 @@ namespace nexus::protocol {
         return "SUBMIT " + req.table.value() + " " + req.key + " " + detail::encode_fields(req.row->fields());
     }
 
+    inline std::string encode(const LogoutRequest &) { return "LOGOUT"; }
+
     inline domain::Expected<Request> parse_request(const std::string &line) {
+        // No-argument verb, checked before the space-based split below
+        // (which every other verb needs) - "LOGOUT" alone has no space
+        // to find.
+        if (line == "LOGOUT") return Request{LogoutRequest{}};
+
         auto sp = line.find(' ');
         if (sp == std::string::npos) return std::unexpected(domain::Error::ParseError);
         std::string verb = line.substr(0, sp);

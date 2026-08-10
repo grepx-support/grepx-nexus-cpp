@@ -15,7 +15,15 @@ enum class SocketError { ConnectFailed, BindFailed, ListenFailed, AcceptFailed, 
 class Socket {
 public:
     Socket() = default;
-    explicit Socket(platform::socket_handle handle) : handle_(handle) {}
+    explicit Socket(platform::socket_handle handle) : handle_(handle) {
+        // Applies to every Socket regardless of how it was created -
+        // both connect() below and TcpListener::accept() construct
+        // through this same constructor. See platform::enable_keepalive
+        // for why this matters (detecting a peer that died without
+        // sending a FIN, within seconds instead of Windows' multi-minute
+        // default TCP timeout).
+        if (valid()) platform::enable_keepalive(handle_);
+    }
 
     Socket(const Socket&) = delete;
     Socket& operator=(const Socket&) = delete;
