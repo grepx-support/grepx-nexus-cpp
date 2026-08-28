@@ -2,6 +2,9 @@
 #include "nexus/app/app_launcher.hpp"
 #include "nexus/net/tcp_listener.hpp"
 #include "nexus/persistence/sqlite_snapshot_traits.hpp"
+#if defined(NEXUS_USE_FAST_STORE)
+#  include "nexus/persistence_fast/sqlite_inmem_snapshot_traits.hpp"
+#endif
 #include "nexus/logging/composite_logger.hpp"
 #include "nexus/logging/console_logger.hpp"
 #include "nexus/logging/file_logger.hpp"
@@ -327,7 +330,14 @@ namespace {
 int main(int argc, char *argv[]) {
     setup_logging();
 
-    using SnapshotTraits = nexus::traits::SqliteSnapshotTraits; // <-- the whole swap
+    // Switch store at cmake configure time:
+    //   Fast (in-memory + async checkpoint): cmake -B cmake-build-profile -DNEXUS_FAST_STORE=ON
+    //   Default (file-backed SQLite):        cmake -B cmake-build-profile -DNEXUS_FAST_STORE=OFF
+#if defined(NEXUS_USE_FAST_STORE)
+    using SnapshotTraits = nexus::traits::SqliteInMemSnapshotTraits;
+#else
+    using SnapshotTraits = nexus::traits::SqliteSnapshotTraits;
+#endif
     using AuditTraits = nexus::traits::AuditTraits;
     using EventTraits = nexus::traits::EventTraits;
     using SubscriptionTraits = nexus::traits::SubscriptionTraits;
