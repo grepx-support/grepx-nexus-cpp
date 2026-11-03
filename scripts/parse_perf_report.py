@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """
 Parse the flat text output of:
     perf report --stdio -g none --sort=overhead,symbol > report.txt

@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Shared NexusApplication config for the trade demo — both
 flask_frontend.py and main.py call create_trade_app() from
 here so the table names and state machine live in exactly one place.

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Adds/updates one row in the "users" table nexus_server's DbAuthenticator
 checks against (see libs/authentication/include/nexus/authentication/db_authenticator.hpp).
 Without this, every AUTH attempt fails — there's nothing to match against.

@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """SELECT-only client — proves a client that never inserts or submits
 anything can still see live data land, purely by polling SELECT. Uses
 its own application_name ("trade-demo-reader") and access_mode

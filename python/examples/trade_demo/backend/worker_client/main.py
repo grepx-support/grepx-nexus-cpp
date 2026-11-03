@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Backend worker entrypoint for the trade demo — deliberately thin.
 Everything it does: configure logging, build the app, wire up
 RecoveringSubscriber with business_logic's handler, start it, wait for

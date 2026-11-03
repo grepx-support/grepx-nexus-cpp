@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 #pragma once
 // UNVERIFIED IN THIS SANDBOX — see redis_snapshot_store.hpp for why.
 #include "nexus/persistence/redis_snapshot_store.hpp"

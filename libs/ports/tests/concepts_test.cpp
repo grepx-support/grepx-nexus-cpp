@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 // Ports are concepts, not runtime code — the meaningful test is that a
 // minimal conforming type satisfies each concept, and a minimal
 // non-conforming type does NOT. All checks are static_assert, evaluated

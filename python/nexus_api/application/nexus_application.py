@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """NexusApplication — the reusable model for "services talk to Nexus
 instead of each other" flows, so a new application can be stood up later
 without re-deriving this pattern.

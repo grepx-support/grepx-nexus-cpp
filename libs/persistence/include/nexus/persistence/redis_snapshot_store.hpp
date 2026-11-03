@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 #pragma once
 // UNVERIFIED IN THIS SANDBOX. This sandbox has no internet access, so
 // hiredis could not be installed and no Redis server could be started

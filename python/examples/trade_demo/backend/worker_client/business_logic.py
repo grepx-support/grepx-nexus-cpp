@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """The backend worker's actual domain logic — what happens when a trade
 needs claiming/accepting. Nothing in here knows about sockets,
 subscriptions, threads, or startup ordering; that's main.py's job. This

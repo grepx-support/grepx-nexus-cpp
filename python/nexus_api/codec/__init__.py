@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Wire encoding/decoding — pure functions, no state, nothing to swap an
 implementation of, so these are plain modules rather than interface +
 impl. See libs/protocol/include/nexus/protocol/codec.hpp for the C++

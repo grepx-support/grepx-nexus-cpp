@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Standard envelope every Nexus row carries on top of its business
 fields: which application produced the entry, its status at that point,
 the acting user, and when. Used by both the append-only per-stage tables

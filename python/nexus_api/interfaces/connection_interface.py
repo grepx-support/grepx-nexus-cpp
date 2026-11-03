@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """ConnectionInterface — the contract one line-buffered connection to
 nexus_server must satisfy. impl/tcp_connection.py is the only concrete
 implementation today; the point of the split is that NexusClient (and

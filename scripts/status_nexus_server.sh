@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 # One-shot health check: is nexus_server up, and what do its and any
 # running demo clients' logs say right now. Doesn't start or stop
 # anything — read-only, safe to run anytime.

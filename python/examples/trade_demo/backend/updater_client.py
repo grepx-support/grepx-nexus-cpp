@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Subscribe-and-update client — the "one real time, then inserting
 something" role: reacts live to new ABC trades and moves each one
 NEW -> CLAIMED, via submit() (one call, server validates/records/

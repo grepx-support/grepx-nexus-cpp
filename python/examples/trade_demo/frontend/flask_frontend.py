@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Flask 'frontend' for the trade demo — a new trade order becomes a NEW
 snapshot row in transactions. backend/main.py (or any of the
 backend/*_client.py scripts) picks it up from there and moves it through
