@@ -1,7 +1,16 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 #include "connection.hpp"
 #include "nexus/app/app_launcher.hpp"
 #include "nexus/net/tcp_listener.hpp"
 #include "nexus/persistence/sqlite_snapshot_traits.hpp"
+#if defined(NEXUS_USE_FAST_STORE)
+#  include "nexus/persistence_fast/sqlite_inmem_snapshot_traits.hpp"
+#endif
 #include "nexus/logging/composite_logger.hpp"
 #include "nexus/logging/console_logger.hpp"
 #include "nexus/logging/file_logger.hpp"
@@ -104,6 +113,7 @@ namespace {
         };
 
         bool authenticated = false;
+        std::string username;   // the account this connection logged in as (table ownership is checked against it)
         // Set only once login() succeeds; RAII guard below logs the
         // session out on every exit path (clean disconnect, parse
         // error loop exit, or an exception unwinding the stack) so a
@@ -158,6 +168,7 @@ namespace {
                     }
                     session_id = id;
                     authenticated = true;
+                    username = auth_req->username;
                     // Set after login succeeds — every REQUEST/RESPONSE
                     // line for the rest of this connection's life now
                     // carries it via ctx(), not just this one login line.
@@ -176,6 +187,16 @@ namespace {
             // one request, not bring down every other connection on the
             // process via std::terminate(). Catch at this boundary: one
             // request in, one response out, whatever happens in between.
+            // Writes to an owned table only from its owner (see DbAuthenticator::can_write).
+            std::string written_table;
+            if (auto *r = std::get_if<protocol::InsertRequest>(&*request)) written_table = r->table.value();
+            else if (auto *r = std::get_if<protocol::TransitionRequest>(&*request)) written_table = r->table.value();
+            else if (auto *r = std::get_if<protocol::SubmitRequest>(&*request)) written_table = r->table.value();
+            if (!written_table.empty() && !engine.authenticator().can_write(username, written_table)) {
+                logging::log().warn(ctx() + "write refused: user=" + username + " does not own table " + written_table);
+                (void) send(protocol::encode_err("forbidden: " + written_table + " is owned by another service"));
+                continue;
+            }
             try {
                 std::visit(
                     [&]<typename Req>(const Req &req) {
@@ -327,7 +348,14 @@ namespace {
 int main(int argc, char *argv[]) {
     setup_logging();
 
-    using SnapshotTraits = nexus::traits::SqliteSnapshotTraits; // <-- the whole swap
+    // Switch store at cmake configure time:
+    //   Fast (in-memory + async checkpoint): cmake -B cmake-build-profile -DNEXUS_FAST_STORE=ON
+    //   Default (file-backed SQLite):        cmake -B cmake-build-profile -DNEXUS_FAST_STORE=OFF
+#if defined(NEXUS_USE_FAST_STORE)
+    using SnapshotTraits = nexus::traits::SqliteInMemSnapshotTraits;
+#else
+    using SnapshotTraits = nexus::traits::SqliteSnapshotTraits;
+#endif
     using AuditTraits = nexus::traits::AuditTraits;
     using EventTraits = nexus::traits::EventTraits;
     using SubscriptionTraits = nexus::traits::SubscriptionTraits;

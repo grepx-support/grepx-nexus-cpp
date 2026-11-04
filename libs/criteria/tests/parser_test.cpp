@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 #include "nexus/criteria/sql_like_criteria_parser.hpp"
 #include "nexus/ports/criteria_parser.hpp"
 #include <cassert>

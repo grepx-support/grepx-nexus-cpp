@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Creates/migrates the Nexus SQLite schema, built from the table models
 in models.py.
 

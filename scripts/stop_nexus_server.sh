@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 # Stops a running nexus_server process (started via ./start_nexus_server.sh in another
 # terminal). Ctrl+C in that terminal does the same thing directly — this
 # is for stopping it from a *different* terminal/window without having

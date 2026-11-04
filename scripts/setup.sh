@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 # One-time(ish) setup for the Nexus server itself: creates the SQLite
 # schema AND seeds a login user — the two things that have to happen
 # before nexus_server will accept any client at all.

@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """ClientInterface — the operations a service needs against nexus_server:
 INSERT, SELECT, SUBSCRIBE, SUBMIT (and TRANSITION, kept for lower-level
 callers that already have an expected_version in hand). impl/nexus_client.py

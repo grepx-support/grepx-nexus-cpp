@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """INSERT-only client — submits new trades for a fixed test symbol
 (ABC) so there's always a known, easy-to-find row to check in
 nexus_rows and outbox after running. Own application_name

@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 // libs/authentication/include/nexus/authentication/password_authenticator.hpp
 #pragma once
 #include <cstdlib>
@@ -17,6 +23,9 @@ namespace nexus::authentication {
         [[nodiscard]] bool authenticate(std::string_view /*username*/, std::string_view password) const {
             return !password_.empty() && password == password_;
         }
+
+        // One shared secret: no identity, so no per-table ownership.
+        [[nodiscard]] bool can_write(std::string_view /*username*/, std::string_view /*table*/) const { return true; }
 
     private:
         std::string password_;

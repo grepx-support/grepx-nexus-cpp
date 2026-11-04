@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """Dumps every table in a Nexus SQLite DB, human-readable — a generic
 debug tool for "is the data actually there" questions, so nobody has to
 hand-write a one-off sqlite3 script or dig through a GUI plugin for it.

@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 #pragma once
 
 // Isolates every #ifdef _WIN32 branch in one place. Nothing outside this

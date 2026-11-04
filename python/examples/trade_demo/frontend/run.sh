@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 # Starts trade_demo's Flask frontend (http://localhost:5001) on its
 # own — standalone, no backend client started alongside it. Assumes
 # nexus_server is already running and ../setup.sh has been run once

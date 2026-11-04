@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 cmake_minimum_required(VERSION 3.28)
 project(nexus LANGUAGES CXX)
 
@@ -5,7 +9,26 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/NexusCommon.cmake)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Per-function latency profiling (see libs/profiling). Off by default —
+# zero effect on normal builds. Turn on with:
+#   cmake -B cmake-build-debug -DNEXUS_ENABLE_PROFILING=ON
+#option(NEXUS_ENABLE_PROFILING "Instrument every function with entry/exit nanosecond timing" OFF)
+
+# Ultra-low-latency in-memory SQLite store with async WAL checkpoint to disk.
+# When ON, nexus_server is compiled with NEXUS_USE_FAST_STORE=1 and uses
+# SqliteInMemStore instead of SqliteSnapshotStore — microsecond write
+# latency on the hot path, checkpoint to disk every 500 ms by default.
+# When OFF (default), the original file-backed SqliteSnapshotStore is used.
+#
+# Switch:  cmake -B cmake-build-profile -DNEXUS_FAST_STORE=ON
+#          cmake -B cmake-build-profile -DNEXUS_FAST_STORE=OFF
+option(NEXUS_FAST_STORE "Use in-memory SQLite with async WAL checkpoint (ultra-low latency)" OFF)
+
 enable_testing()
+
+#if(NEXUS_ENABLE_PROFILING)
+#    add_subdirectory(libs/profiling)
+#endif()
 
 add_subdirectory(libs/domain)
 add_subdirectory(libs/ports)
@@ -21,6 +44,7 @@ add_subdirectory(libs/net)
 add_subdirectory(libs/protocol)
 add_subdirectory(libs/engine)
 add_subdirectory(libs/persistence)
+add_subdirectory(libs/persistence_fast)   # always built; linked only when NEXUS_FAST_STORE=ON
 # Fetches and builds protobuf from source on first use — a genuinely
 # slow, higher-risk build (see libs/proto/CMakeLists.txt's comment).
 # Opt in by uncommenting once you're ready to pay that cost; nothing

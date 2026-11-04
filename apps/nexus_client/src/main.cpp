@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+ * This file is part of the GrepX platform and is proprietary and confidential.
+ * Unauthorised copying, use, modification or distribution is strictly prohibited.
+ */
+
 // Nexus client — a standalone process. Depends only on nexus_net and
 // nexus_protocol: no knowledge of domain internals, no linkage against
 // nexus_infra or nexus_application. This is the loose-coupling proof —

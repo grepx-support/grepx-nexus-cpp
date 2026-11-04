@@ -1,3 +1,7 @@
+# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
+# This file is part of the GrepX platform and is proprietary and confidential.
+# Unauthorised copying, use, modification or distribution is strictly prohibited.
+
 """TcpConnection — the concrete, socket-backed ConnectionInterface.
 Line-buffered exactly like nexus::net::Socket
 (libs/net/include/nexus/net/socket.hpp).
