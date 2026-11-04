@@ -1,85 +1,163 @@
-# Copyright (c) 2026 GrepX Private Limited (grepx.sg). All rights reserved.
-# This file is part of the GrepX platform and is proprietary and confidential.
-# Unauthorised copying, use, modification or distribution is strictly prohibited.
+name: CI / Release
 
-- name: Install dependencies (Linux)
-  if: matrix.os == 'ubuntu-latest'
-  run: |
-    sudo apt-get update
-    sudo apt-get install -y build-essential cmake zip
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
 
-- name: Install dependencies (macOS)
-  if: matrix.os == 'macos-latest'
-  run: |
-    brew update
-    brew install cmake zip
+  workflow_dispatch:
 
-- name: Install dependencies (Windows)
-  if: matrix.os == 'windows-latest'
-  run: |
-    choco install -y cmake zip --no-progress
-  shell: cmd
+jobs:
+  build-and-package:
+    name: Build & Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
 
-- name: Configure with CMake
-  run: |
-    mkdir -p build
-    cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-  shell: bash
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
-- name: Build
-  run: |
-    cd build
-    cmake --build . --config Release -- -j$(nproc || 2)
-  shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-- name: Package binary (Linux / macOS)
-  if: matrix.os != 'windows-latest'
-  run: |
-    mkdir -p dist
-    # adjust the executable name/path below to match your project
-    if [ -f build/grepx-nexus-cpp ]; then
-      cp build/grepx-nexus-cpp dist/grepx-nexus-cpp
-    elif [ -f build/Release/grepx-nexus-cpp ]; then
-      cp build/Release/grepx-nexus-cpp dist/grepx-nexus-cpp
-    fi
-    zip -j "dist/grepx-nexus-cpp-${{ github.ref_name }}-${{ matrix.os }}.zip" dist/grepx-nexus-cpp
-  shell: bash
+      # -----------------------------
+      # Install dependencies
+      # -----------------------------
 
-- name: Package binary (Windows)
-  if: matrix.os == 'windows-latest'
-  run: |
-    mkdir dist 2>nul || exit 0
-    powershell -Command ^
-      $exe = (Test-Path build\\Release\\grepx-nexus-cpp.exe) ? 'build\\Release\\grepx-nexus-cpp.exe' : 'build\\grepx-nexus-cpp.exe'; ^
-      Copy-Item $exe dist\\grepx-nexus-cpp.exe; ^
-      Compress-Archive -Path dist\\grepx-nexus-cpp.exe -DestinationPath dist\\grepx-nexus-cpp-${{ github.ref_name }}-windows.zip -Force
-  shell: powershell
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zip
 
-- name: Create GitHub Release (only on tag)
-  if: startsWith(github.ref, 'refs/tags/')
-  id: create_release
-  uses: softprops/action-gh-release@v1
-  with:
-    tag_name: ${{ github.ref_name }}
-    name: Release ${{ github.ref_name }}
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install cmake zip
 
-- name: Upload release asset (only on tag)
-  if: startsWith(github.ref, 'refs/tags/')
-  uses: actions/upload-release-asset@v1
-  with:
-    upload_url: ${{ steps.create_release.outputs.upload_url }}
-    asset_path: dist/*.zip
-    asset_name: grepx-nexus-cpp-${{ github.ref_name }}-${{ matrix.os }}.zip
-    asset_content_type: application/zip
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install -y cmake --no-progress
+        shell: powershell
 
-- name: Upload workflow artifact (non-tag / fallback)
-  if: !startsWith(github.ref, 'refs/tags/')
-  uses: actions/upload-artifact@v3
-  with:
-    name: grepx-nexus-cpp-${{ matrix.os }}
-    path: dist/*.zip
+      # -----------------------------
+      # Configure
+      # -----------------------------
+
+      - name: Configure with CMake
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+
+      - name: Configure with CMake (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          New-Item -ItemType Directory -Path build -Force | Out-Null
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+        shell: powershell
+
+      # -----------------------------
+      # Build
+      # -----------------------------
+
+      - name: Build (Linux / macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd build
+          cmake --build . --config Release --parallel 2
+        shell: bash
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd build
+          cmake --build . --config Release --parallel 2
+        shell: powershell
+
+      # -----------------------------
+      # Package Linux / macOS
+      # -----------------------------
+
+      - name: Package binary (Linux / macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p dist
+
+          if [ -f build/grepx-nexus-cpp ]; then
+            cp build/grepx-nexus-cpp dist/grepx-nexus-cpp
+          elif [ -f build/Release/grepx-nexus-cpp ]; then
+            cp build/Release/grepx-nexus-cpp dist/grepx-nexus-cpp
+          else
+            echo "ERROR: grepx-nexus-cpp binary not found"
+            find build -type f
+            exit 1
+          fi
+
+          zip -j \
+            "dist/grepx-nexus-cpp-${{ github.ref_name }}-${{ matrix.os }}.zip" \
+            dist/grepx-nexus-cpp
+
+        shell: bash
+
+      # -----------------------------
+      # Package Windows
+      # -----------------------------
+
+      - name: Package binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+
+          if (Test-Path 'build\Release\grepx-nexus-cpp.exe') {
+              $exe = 'build\Release\grepx-nexus-cpp.exe'
+          }
+          elseif (Test-Path 'build\grepx-nexus-cpp.exe') {
+              $exe = 'build\grepx-nexus-cpp.exe'
+          }
+          else {
+              Write-Error "ERROR: grepx-nexus-cpp.exe not found"
+              Get-ChildItem -Path build -Recurse
+              exit 1
+          }
+
+          Copy-Item $exe -Destination 'dist\grepx-nexus-cpp.exe' -Force
+
+          Compress-Archive `
+            -Path 'dist\grepx-nexus-cpp.exe' `
+            -DestinationPath "dist\grepx-nexus-cpp-${{ github.ref_name }}-windows.zip" `
+            -Force
+
+        shell: powershell
+
+      # -----------------------------
+      # Upload build artifacts
+      # -----------------------------
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grepx-nexus-cpp-${{ matrix.os }}
+          path: dist/*.zip
+
+      # -----------------------------
+      # Create GitHub Release
+      # Only runs for version tags
+      # -----------------------------
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
