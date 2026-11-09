@@ -33,6 +33,9 @@ public:
         if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
             throw std::runtime_error("SqliteLoginAudit: sqlite3_open failed");
         }
+        // Several connections share this file (rows, login audit, accounts): wait up to 5 s for a
+        // writer instead of failing at once with SQLITE_BUSY (no cost when there is no contention).
+        sqlite3_busy_timeout(db_, 5000);
     }
 
     ~SqliteLoginAudit() { if (db_) sqlite3_close(db_); }

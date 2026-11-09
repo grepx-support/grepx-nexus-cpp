@@ -25,6 +25,7 @@ namespace nexus::authentication {
             if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
                 throw std::runtime_error("DbAuthenticator: sqlite3_open failed");
             }
+            sqlite3_busy_timeout(db_, 5000);   // shares the file with the row store: wait for a writer, never fail at once
             load_owners();
         }
 
