@@ -32,7 +32,20 @@
 using namespace nexus;
 
 namespace {
-    constexpr unsigned short kPort = 7878;
+    constexpr unsigned short kDefaultPort = 7878;
+
+    // NEXUS_PORT lets several deployments (one hub per product) share a machine; anything that is not a
+    // valid port number falls back to 7878 so a typo never leaves the hub listening somewhere unexpected.
+    unsigned short listen_port() {
+        if (const char *env = std::getenv("NEXUS_PORT")) {
+            char *end = nullptr;
+            const long value = std::strtol(env, &end, 10);
+            if (end != env && *end == '\0' && value > 0 && value < 65536) {
+                return static_cast<unsigned short>(value);
+            }
+        }
+        return kDefaultPort;
+    }
 
     // Console output alone disappears the moment the terminal is closed
     // or scrolled past — every REQUEST/RESPONSE line this server prints
@@ -324,12 +337,13 @@ namespace {
         // hard restart.
         engine.login_audit().reconcile_orphaned_sessions();
 
-        auto listener = net::TcpListener::listen(kPort);
+        const unsigned short port = listen_port();
+        auto listener = net::TcpListener::listen(port);
         if (!listener) {
-            logging::log().error("failed to bind port " + std::to_string(kPort));
+            logging::log().error("failed to bind port " + std::to_string(port));
             return 1;
         }
-        logging::log().info("listening on 127.0.0.1:" + std::to_string(kPort));
+        logging::log().info("listening on 127.0.0.1:" + std::to_string(port));
 
         std::vector<std::jthread> connection_threads;
         while (true) {
